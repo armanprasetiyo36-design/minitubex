@@ -366,3 +366,397 @@ async function cekPostinganBaruOtomatis() {
 }
 
 setInterval(cekPostinganBaruOtomatis, 4000);
+
+// === FITUR KOMPRESI VIDEO BROWSER & PENGAMAN UPLOAD (MAX 90 MB) ===
+(function () {
+  const BATAS_MB = 90;
+  const BATAS_BYTE = BATAS_MB * 1024 * 1024;
+
+  let hasilKompresUrl = null;
+  let recorderAktif = null;
+  let sedangKompres = false;
+  let dibatalkan = false;
+
+  // 1. Suntikkan CSS gaya Frutiger Aero untuk panel kompresi & notifikasi upload
+  const style = document.createElement("style");
+  style.textContent = `
+    .mtx-btn-kompres {
+      background: linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(210,240,255,0.75) 100%);
+      border: 1px solid rgba(255,255,255,0.9);
+      border-radius: 20px;
+      padding: 7px 14px;
+      font-weight: 600;
+      font-size: 13px;
+      color: #0b4f71;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0, 85, 140, 0.15);
+      backdrop-filter: blur(8px);
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-right: 6px;
+    }
+    .mtx-btn-kompres:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 110, 180, 0.25);
+    }
+    #mtx-kompres-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 35, 58, 0.55);
+      backdrop-filter: blur(6px);
+      z-index: 9998;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .mtx-kompres-box {
+      width: 100%;
+      max-width: 460px;
+      background: linear-gradient(180deg, rgba(240,250,255,0.95) 0%, rgba(215,238,252,0.92) 100%);
+      border: 1.5px solid #ffffff;
+      border-radius: 18px;
+      padding: 18px 20px;
+      box-shadow: 0 12px 32px rgba(0, 45, 85, 0.35);
+      color: #0c3b58;
+      font-family: inherit;
+    }
+    .mtx-rules {
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(130, 195, 235, 0.7);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      margin: 10px 0 14px;
+      line-height: 1.5;
+    }
+    .mtx-progress-wrap {
+      width: 100%;
+      height: 14px;
+      background: rgba(255,255,255,0.8);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #8ecae6;
+      margin: 10px 0;
+    }
+    .mtx-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2ec4b6, #0096c7);
+      transition: width 0.2s;
+    }
+    #mtx-upload-toast {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #d8f3ff 100%);
+      border: 1.5px solid #ffffff;
+      color: #084163;
+      padding: 12px 18px;
+      border-radius: 14px;
+      font-weight: 600;
+      font-size: 13.5px;
+      box-shadow: 0 8px 24px rgba(0, 50, 90, 0.28);
+      z-index: 9999;
+    }
+  `;
+  document.head.appendChild(style);
+
+  // 2. Buat Modal Kompresi & Toast Status Upload
+  const overlay = document.createElement("div");
+  overlay.id = "mtx-kompres-overlay";
+  overlay.innerHTML = `
+    <div class="mtx-kompres-box">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:17px;">Kompres Video (Hemat Ukuran)</h3>
+        <button id="mtx-tutup-kompres" style="border:none; background:rgba(255,255,255,0.8); border-radius:50%; width:28px; height:28px; cursor:pointer; font-weight:bold; color:#0c3b58;">✕</button>
+      </div>
+      <div class="mtx-rules">
+        <strong>Ketentuan Website MiniTube X:</strong><br>
+        • Maksimal ukuran upload: <strong>${BATAS_MB} MB</strong> (video besar wajib dikompres dulu).<br>
+        • Otomatis diubah ke resolusi hemat <strong>480p</strong> agar lancar diputar.<br>
+        • <strong>Auto-Hapus:</strong> Video di sini langsung hilang begitu pindah tab (Feed/Video/Shorts) atau tutup jendela ini.
+      </div>
+      <input type="file" id="mtx-input-kompres" accept="video/*" style="width:100%; margin-bottom:10px; font-size:13px;">
+      <div id="mtx-info-file" style="font-size:12.5px; margin-bottom:8px; color:#145374;"></div>
+      <button id="mtx-mulai-kompres" disabled style="width:100%; padding:9px; border-radius:12px; border:none; background:linear-gradient(180deg,#38b6ff,#0077b6); color:#fff; font-weight:bold; cursor:pointer; opacity:0.6;">Mulai Kompres Video</button>
+      <div id="mtx-area-proses" style="display:none; margin-top:10px;">
+        <div class="mtx-progress-wrap"><div id="mtx-bar" class="mtx-progress-bar"></div></div>
+        <div id="mtx-status-kompres" style="font-size:12.5px; text-align:center;">Memproses...</div>
+      </div>
+      <div id="mtx-area-hasil" style="display:none; margin-top:12px; text-align:center;">
+        <video id="mtx-preview-hasil" controls style="width:100%; max-height:190px; border-radius:10px; background:#000; margin-bottom:8px;"></video>
+        <div id="mtx-ukuran-hasil" style="font-size:12.5px; font-weight:600; margin-bottom:8px; color:#0a6847;"></div>
+        <a id="mtx-link-download" download="video-kompres-minitubex.mp4" style="display:inline-block; width:100%; box-sizing:border-box; padding:9px; border-radius:12px; background:linear-gradient(180deg,#2ec4b6,#1b9aaa); color:#fff; text-decoration:none; font-weight:bold; font-size:13.5px;">⬇ Download Hasil Kompresi</a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const toast = document.createElement("div");
+  toast.id = "mtx-upload-toast";
+  toast.textContent = "⏳ Sedang mengupload ke server... Tunggu sebentar ya!";
+  document.body.appendChild(toast);
+
+  // 3. Pasang tombol "Kompres Video" di sebelah "+ Upload Baru"
+  function pasangTombolHeader() {
+    const semuaTombol = Array.from(document.querySelectorAll("button"));
+    const btnUpload = semuaTombol.find(b => b.textContent && b.textContent.includes("Upload"));
+    if (btnUpload && !document.getElementById("mtx-btn-buka-kompres")) {
+      const btnKompres = document.createElement("button");
+      btnKompres.id = "mtx-btn-buka-kompres";
+      btnKompres.type = "button";
+      btnKompres.className = "mtx-btn-kompres";
+      btnKompres.textContent = "Kompres Video";
+      btnKompres.onclick = () => {
+        bersihkanMemoriKompres();
+        overlay.style.display = "flex";
+      };
+      btnUpload.parentNode.insertBefore(btnKompres, btnUpload);
+    }
+  }
+  pasangTombolHeader();
+
+  // 4. Fungsi pembersih memori otomatis (saat tutup modal atau klik tab Feed/Video/Shorts)
+  function bersihkanMemoriKompres() {
+    dibatalkan = true;
+    if (recorderAktif && recorderAktif.state !== "inactive") {
+      try { recorderAktif.stop(); } catch (e) {}
+    }
+    recorderAktif = null;
+    sedangKompres = false;
+
+    const preview = document.getElementById("mtx-preview-hasil");
+    if (preview) {
+      preview.pause();
+      preview.removeAttribute("src");
+      preview.load();
+    }
+    if (hasilKompresUrl) {
+      URL.revokeObjectURL(hasilKompresUrl);
+      hasilKompresUrl = null;
+    }
+
+    const inputEl = document.getElementById("mtx-input-kompres");
+    const btnMulai = document.getElementById("mtx-mulai-kompres");
+    if (inputEl) inputEl.value = "";
+    if (btnMulai) {
+      btnMulai.disabled = true;
+      btnMulai.style.opacity = "0.6";
+    }
+    document.getElementById("mtx-info-file").textContent = "";
+    document.getElementById("mtx-area-proses").style.display = "none";
+    document.getElementById("mtx-area-hasil").style.display = "none";
+    document.getElementById("mtx-bar").style.width = "0%";
+  }
+
+  document.getElementById("mtx-tutup-kompres").onclick = () => {
+    bersihkanMemoriKompres();
+    overlay.style.display = "none";
+  };
+
+  // Langsung hapus video kompresi jika user klik tab Feed, Video, Shorts, atau Refresh
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const teks = (btn.textContent || "").trim();
+    if (["Feed", "Video", "Shorts", "Refresh"].includes(teks)) {
+      bersihkanMemoriKompres();
+      overlay.style.display = "none";
+    }
+  });
+
+  // 5. Logika pilihan file & proses kompresi di browser
+  const inputKompres = document.getElementById("mtx-input-kompres");
+  const btnMulai = document.getElementById("mtx-mulai-kompres");
+
+  inputKompres.onchange = () => {
+    if (hasilKompresUrl) {
+      URL.revokeObjectURL(hasilKompresUrl);
+      hasilKompresUrl = null;
+    }
+    document.getElementById("mtx-area-hasil").style.display = "none";
+    const file = inputKompres.files[0];
+    if (!file) return;
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    document.getElementById("mtx-info-file").textContent = `File dipilih: ${file.name} (${mb} MB)`;
+    btnMulai.disabled = false;
+    btnMulai.style.opacity = "1";
+  };
+
+  btnMulai.onclick = async () => {
+    const file = inputKompres.files[0];
+    if (!file || sedangKompres) return;
+
+    sedangKompres = true;
+    dibatalkan = false;
+    btnMulai.disabled = true;
+    btnMulai.style.opacity = "0.6";
+    document.getElementById("mtx-area-proses").style.display = "block";
+    document.getElementById("mtx-area-hasil").style.display = "none";
+
+    const bar = document.getElementById("mtx-bar");
+    const statusTxt = document.getElementById("mtx-status-kompres");
+    bar.style.width = "2%";
+    statusTxt.textContent = "Menyiapkan video (berjalan sesuai durasi video)...";
+
+    const srcUrl = URL.createObjectURL(file);
+    const vid = document.createElement("video");
+    vid.src = srcUrl;
+    vid.playsInline = true;
+    vid.muted = false;
+    vid.volume = 1.0;
+
+    await new Promise((resolve) => {
+      vid.onloadedmetadata = resolve;
+    });
+
+    if (dibatalkan) {
+      URL.revokeObjectURL(srcUrl);
+      return;
+    }
+
+    // Skala ke maksimal 480p (sisi terpanjang max 854px)
+    const maxSisi = 854;
+    let w = vid.videoWidth;
+    let h = vid.videoHeight;
+    if (w > maxSisi || h > maxSisi) {
+      if (w >= h) {
+        h = Math.round((h * maxSisi) / w);
+        w = maxSisi;
+      } else {
+        w = Math.round((w * maxSisi) / h);
+        h = maxSisi;
+      }
+    }
+    w = w % 2 === 0 ? w : w - 1;
+    h = h % 2 === 0 ? h : h - 1;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+
+    // Tangkap audio tanpa membunyikan speaker
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const sourceNode = audioCtx.createMediaElementSource(vid);
+    const destNode = audioCtx.createMediaStreamDestination();
+    sourceNode.connect(destNode);
+
+    const canvasStream = canvas.captureStream(24);
+    const gabunganStream = new MediaStream([
+      ...canvasStream.getVideoTracks(),
+      ...destNode.stream.getAudioTracks()
+    ]);
+
+    let mime = "video/webm";
+    let ext = "webm";
+    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) {
+      mime = "video/mp4;codecs=avc1";
+      ext = "mp4";
+    } else if (MediaRecorder.isTypeSupported("video/mp4")) {
+      mime = "video/mp4";
+      ext = "mp4";
+    } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")) {
+      mime = "video/webm;codecs=vp9,opus";
+    }
+
+    const chunks = [];
+    recorderAktif = new MediaRecorder(gabunganStream, {
+      mimeType: mime,
+      videoBitsPerSecond: 1100000, // ~1.1 Mbps (~8 MB per menit)
+      audioBitsPerSecond: 96000
+    });
+
+    recorderAktif.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorderAktif.onstop = () => {
+      URL.revokeObjectURL(srcUrl);
+      audioCtx.close().catch(() => {});
+      sedangKompres = false;
+
+      if (dibatalkan) return;
+
+      const blobHasil = new Blob(chunks, { type: mime });
+      hasilKompresUrl = URL.createObjectURL(blobHasil);
+      const mbHasil = (blobHasil.size / (1024 * 1024)).toFixed(1);
+
+      bar.style.width = "100%";
+      statusTxt.textContent = "Kompresi selesai!";
+
+      const preview = document.getElementById("mtx-preview-hasil");
+      preview.src = hasilKompresUrl;
+      document.getElementById("mtx-ukuran-hasil").textContent = `Ukuran baru: ${mbHasil} MB (Siap di-download & upload!)`;
+
+      const linkDl = document.getElementById("mtx-link-download");
+      linkDl.href = hasilKompresUrl;
+      linkDl.download = `kompres-minitubex.${ext}`;
+      document.getElementById("mtx-area-hasil").style.display = "block";
+    };
+
+    recorderAktif.start(500);
+    await vid.play();
+
+    function gambarFrame() {
+      if (dibatalkan || vid.paused || vid.ended) return;
+      ctx.drawImage(vid, 0, 0, w, h);
+      if (vid.duration) {
+        const persen = Math.min(99, Math.round((vid.currentTime / vid.duration) * 100));
+        bar.style.width = persen + "%";
+        statusTxt.textContent = `Mengompres... ${persen}% (Jangan pindah tab dulu)`;
+      }
+      requestAnimationFrame(gambarFrame);
+    }
+    gambarFrame();
+
+    vid.onended = () => {
+      if (recorderAktif && recorderAktif.state !== "inactive") {
+        recorderAktif.stop();
+      }
+    };
+  };
+
+  // 6. Cegat otomatis jika user memilih file > 90 MB di form Upload biasa
+  document.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!target || target.type !== "file" || target.id === "mtx-input-kompres") return;
+    const file = target.files && target.files[0];
+    if (!file) return;
+
+    if (file.size > BATAS_BYTE) {
+      const mb = (file.size / (1024 * 1024)).toFixed(1);
+      target.value = "";
+      const bukaSekarang = confirm(
+        `Ukuran file kamu ${mb} MB (batas maksimal website ${BATAS_MB} MB).\n\nKlik OK untuk langsung membuka tempat Kompres Video!`
+      );
+      if (bukaSekarang) {
+        bersihkanMemoriKompres();
+        overlay.style.display = "flex";
+      }
+    }
+  }, true);
+
+  // 7. Tampilkan indikator loading otomatis saat proses POST upload berjalan
+  const asliFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const opsi = args[1] || {};
+    const isPost = (opsi.method || "GET").toUpperCase() === "POST";
+    if (isPost) toast.style.display = "block";
+    try {
+      const res = await asliFetch.apply(this, args);
+      if (isPost && !res.ok) {
+        alert("Upload gagal ditolak server. Pastikan ukuran file di bawah 90 MB.");
+      }
+      return res;
+    } catch (err) {
+      if (isPost) {
+        alert("Koneksi upload terputus atau file terlalu besar (maksimal 90 MB).");
+      }
+      throw err;
+    } finally {
+      if (isPost) toast.style.display = "none";
+    }
+  };
+})();
