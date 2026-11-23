@@ -6,6 +6,23 @@
   <title>MiniTube X — Frutiger Aero Edition</title>
   <!-- Menghubungkan ke file CSS terpisah -->
   <link rel="stylesheet" href="style.css">
+
+  <script>
+(async function () {
+  try {
+    const res = await fetch('./server.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.server) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('server') !== data.server) {
+      url.searchParams.set('server', data.server);
+      window.location.replace(url.toString());
+    }
+  } catch (e) {}
+})();
+</script>
+
 </head>
 <body>
 
