@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MiniTube X — Frutiger Aero Edition</title>
+  <!-- Menghubungkan ke file CSS terpisah -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Background efek gelembung cahaya Frutiger Aero -->
+  <div class="aero-orbs" aria-hidden="true"></div>
+
+  <!-- Bilah Navigasi Atas (Gaya Windows 7 Glass Bar) -->
+  <header class="aero-navbar">
+    <div class="brand-area">
+      <span class="aero-orb-icon"></span>
+      <span class="brand-title">MiniTube X</span>
+      <span class="badge-24h">Auto-Hapus 24 Jam</span>
+    </div>
+
+    <div class="nav-actions">
+      <button class="win7-btn" onclick="renderSemuaTab()">Refresh</button>
+      <button class="win7-btn win7-btn-primary" onclick="toggleFormUpload()">+ Upload Baru</button>
+    </div>
+  </header>
+
+  <!-- Navigasi Tab (Feed, Video, Shorts) -->
+  <nav class="aero-tabs">
+    <button class="tab-btn active" id="tab-feed" onclick="gantiTab('feed')">Feed</button>
+    <button class="tab-btn" id="tab-video" onclick="gantiTab('video')">Video</button>
+    <button class="tab-btn" id="tab-short" onclick="gantiTab('short')">Shorts</button>
+  </nav>
+
+  <!-- Kontainer Utama -->
+  <main class="main-container">
+
+    <!-- Jendela Form Upload (Gaya Dialog Windows 7) -->
+    <section class="win7-window hidden" id="panelUpload">
+      <div class="win7-titlebar">
+        <span>Buat Postingan Baru (Tanpa Login)</span>
+        <button class="win7-close-btn" onclick="toggleFormUpload()" title="Tutup">✕</button>
+      </div>
+
+      <div class="win7-window-body">
+        <div class="form-row">
+          <input type="text" id="inputNama" class="aero-input" placeholder="Nama kamu (kosongkan = Anon)" maxlength="24">
+          <select id="inputTipe" class="aero-input">
+            <option value="feed">Feed (Status Teks / Foto / Video)</option>
+            <option value="video">Video Panjang (YouTube)</option>
+            <option value="short">Shorts Vertikal (TikTok)</option>
+          </select>
+        </div>
+
+        <textarea id="inputTeks" class="aero-input" placeholder="Tulis status, caption, atau judul video di sini..."></textarea>
+
+        <div class="form-row">
+          <input type="file" id="inputFile" class="aero-input" accept="image/*,video/*">
+          <button class="win7-btn win7-btn-primary" onclick="kirimPostingan()">Posting Sekarang</button>
+        </div>
+
+        <p id="pesanStatus" class="status-text">
+          Pilih gambar atau video dari komputer. Semua postingan otomatis hilang setelah 24 jam.
+        </p>
+      </div>
+    </section>
+
+    <!-- TAMPILAN 1: FEED (Status & Gambar) -->
+    <section id="view-feed" class="feed-container"></section>
+
+    <!-- TAMPILAN 2: VIDEO (Pemutar Utama + Grid) -->
+    <section id="view-video" class="hidden">
+      <div id="boxPemutarUtama" class="win7-window hidden" style="margin-bottom: 20px;">
+        <div class="win7-titlebar">
+          <span id="judulPemutarUtama">Memutar Video</span>
+        </div>
+        <div class="video-stage">
+          <video id="videoPemutarUtama" controls></video>
+        </div>
+        <div class="win7-window-body">
+          <p id="infoPemutarUtama" class="meta-text"></p>
+        </div>
+      </div>
+
+      <div id="gridVideo" class="video-grid"></div>
+    </section>
+
+    <!-- TAMPILAN 3: SHORTS (Scroll Vertikal) -->
+    <section id="view-short" class="hidden">
+      <div id="wadahShorts" class="shorts-viewport"></div>
+    </section>
+
+  </main>
+
+  <!-- Menghubungkan ke file JavaScript terpisah -->
+  <script src="script.js"></script>
+</body>
+</html>

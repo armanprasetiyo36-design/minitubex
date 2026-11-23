@@ -1,0 +1,385 @@
+/* =========================================
+   1. DASAR & LATAR BELAKANG FRUTIGER AERO
+   ========================================= */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #0f2942;
+  /* Gradasi langit cerah biru ke hijau segar khas Frutiger Aero */
+  background: linear-gradient(160deg, #0078d7 0%, #38bdf8 45%, #7dd3fc 72%, #86efac 100%);
+  background-attachment: fixed;
+}
+
+/* Efek gelembung cahaya lembut di latar belakang */
+.aero-orbs {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.55) 0%, transparent 28%),
+    radial-gradient(circle at 85% 75%, rgba(187, 247, 208, 0.65) 0%, transparent 35%),
+    radial-gradient(circle at 70% 15%, rgba(224, 242, 254, 0.5) 0%, transparent 25%);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* =========================================
+   2. NAVBAR AERO GLASS & ORB ICON
+   ========================================= */
+.aero-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  /* Kaca transparan khas taskbar/header Windows 7 */
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(214, 240, 255, 0.52) 50%,
+    rgba(180, 226, 252, 0.62) 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 16px rgba(0, 55, 110, 0.18);
+}
+
+.brand-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Bola kaca glossy kecil mirip Windows Orb */
+.aero-orb-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff 0%, #38bdf8 40%, #0284c7 85%, #0369a1 100%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(2, 132, 199, 0.5);
+}
+
+.brand-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #082f49;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.badge-24h {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #065f46;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: linear-gradient(to bottom, rgba(236, 253, 245, 0.9), rgba(167, 243, 208, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.nav-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* =========================================
+   3. TOMBOL GLOSSY WINDOWS 7 (SPLIT SHINE)
+   ========================================= */
+.win7-btn {
+  padding: 7px 15px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1e293b;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #708a9e;
+  /* Kilau khas tombol Win7: terang di 49% atas, gradasi bawah di 50% */
+  background: linear-gradient(
+    to bottom,
+    #ffffff 0%,
+    #f1f5f9 49%,
+    #dce6f0 50%,
+    #cfdbe8 100%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+
+.win7-btn:hover {
+  border-color: #3c7fb1;
+  box-shadow: inset 0 1px 0 #ffffff, 0 0 8px rgba(56, 189, 248, 0.65);
+}
+
+.win7-btn:active {
+  filter: brightness(0.94);
+}
+
+/* Tombol Utama Warna Biru Aqua Glossy */
+.win7-btn-primary {
+  color: #042f49;
+  border-color: #2b75a8;
+  background: linear-gradient(
+    to bottom,
+    #eaf8ff 0%,
+    #bce8ff 49%,
+    #7dd3fc 50%,
+    #38bdf8 100%
+  );
+}
+
+/* =========================================
+   4. BILAH TAB NAVIGASI
+   ========================================= */
+.aero-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.28);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.tab-btn {
+  padding: 7px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.45);
+  color: #0c4a6e;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.tab-btn.active {
+  color: #042f49;
+  border-color: #ffffff;
+  background: linear-gradient(to bottom, #ffffff 0%, #bae6fd 50%, #7dd3fc 100%);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+}
+
+/* =========================================
+   5. JENDELA WINDOWS 7 AERO & FORM INPUT
+   ========================================= */
+.main-container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+.win7-window {
+  background: rgba(240, 249, 255, 0.76);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow:
+    0 10px 28px rgba(0, 50, 100, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  margin-bottom: 18px;
+}
+
+.win7-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #082f49;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(186, 230, 253, 0.65) 50%,
+    rgba(125, 211, 252, 0.55) 100%
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+/* Tombol Close Merah Glossy khas Windows 7 */
+.win7-close-btn {
+  width: 28px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid #881337;
+  color: #ffffff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  background: linear-gradient(to bottom, #fda4af 0%, #f43f5e 49%, #e11d48 50%, #be123c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.win7-window-body {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.aero-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #7dd3fc;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.aero-input:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 6px rgba(2, 132, 199, 0.45);
+}
+
+textarea.aero-input {
+  width: 100%;
+  min-height: 68px;
+  resize: vertical;
+}
+
+.status-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #0369a1;
+}
+
+/* =========================================
+   6. FEED, VIDEO GRID, & SHORTS VIEWPORT
+   ========================================= */
+.feed-container {
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.post-text {
+  margin: 0 0 10px 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.post-media {
+  width: 100%;
+  max-height: 440px;
+  object-fit: contain;
+  background: #081220;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+
+.meta-text {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.ttl-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0369a1;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+/* Video Grid (Gaya YouTube) */
+.video-stage {
+  background: #000000;
+}
+
+.video-stage video {
+  width: 100%;
+  max-height: 460px;
+  display: block;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.yt-card {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.yt-card:hover {
+  transform: translateY(-3px);
+}
+
+.yt-thumb {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  background: #081220;
+  display: block;
+}
+
+/* Shorts (Scroll Vertikal) */
+.shorts-viewport {
+  max-width: 390px;
+  height: 75vh;
+  margin: 0 auto;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: #050b14;
+  box-shadow: 0 12px 30px rgba(0, 50, 100, 0.3);
+}
+
+.short-slide {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.short-slide video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.short-caption {
+  position: absolute;
+  bottom: 48px;
+  left: 12px;
+  right: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(240, 249, 255, 0.78);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  color: #082f49;
+  pointer-events: none;
+}
