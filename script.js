@@ -322,3 +322,47 @@ function bersihkanTeks(str) {
 }
 
 muatPostingan();
+
+// === AUTO-REFRESH POSTINGAN BARU TIAP 4 DETIK ===
+let jejakPostTerakhir = "";
+
+async function cekPostinganBaruOtomatis() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const serverUrl = params.get("server");
+    if (!serverUrl) return;
+
+    const res = await fetch(serverUrl + "/api/posts?t=" + Date.now(), {
+      cache: "no-store"
+    });
+    if (!res.ok) return;
+
+    const daftarPost = await res.json();
+    const jejakBaru = daftarPost.map(p => p.id || p.file || p.filename || p.url).join(",");
+
+    if (jejakPostTerakhir === "") {
+      jejakPostTerakhir = jejakBaru;
+      return;
+    }
+
+    if (jejakBaru !== jejakPostTerakhir) {
+      const modalBuka = Array.from(document.querySelectorAll(".modal, [id*='modal' i]"))
+        .some(el => getComputedStyle(el).display !== "none" && el.offsetParent !== null);
+      const sedangNonton = Array.from(document.querySelectorAll("video"))
+        .some(v => !v.paused && !v.ended);
+
+      if (!modalBuka && !sedangNonton) {
+        jejakPostTerakhir = jejakBaru;
+        if (typeof loadPosts === "function") {
+          loadPosts();
+        } else if (typeof muatPostingan === "function") {
+          muatPostingan();
+        } else {
+          window.location.reload();
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+setInterval(cekPostinganBaruOtomatis, 4000);
