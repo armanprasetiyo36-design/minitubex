@@ -375,17 +375,32 @@
   }
   terapkanTema(temaAktif);
 
-  function setCookieGoogTrans(langCode) {
-    const val = langCode === "id" ? "" : `/id/${langCode}`;
+  function bersihkanCookieGoogTrans() {
     const host = window.location.hostname;
-    if (!val) {
-      document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-      if (host) document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${host};`;
-    } else {
-      document.cookie = `googtrans=${val}; path=/;`;
-      if (host && host !== "localhost") {
-        document.cookie = `googtrans=${val}; path=/; domain=.${host};`;
-      }
+    const parts = host.split(".");
+    const domains = ["", host, `.${host}`];
+    if (parts.length >= 2) {
+      domains.push(`.${parts.slice(-2).join(".")}`);
+    }
+    const paths = ["/", window.location.pathname];
+
+    domains.forEach((dom) => {
+      paths.forEach((p) => {
+        const domAttr = dom ? `; domain=${dom}` : "";
+        document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=${p}${domAttr}`;
+      });
+    });
+  }
+
+  function setCookieGoogTrans(langCode) {
+    bersihkanCookieGoogTrans();
+    if (!langCode || langCode === "id") return;
+    const val = `/id/${langCode}`;
+    const host = window.location.hostname;
+    document.cookie = `googtrans=${val}; path=/;`;
+    if (host && host !== "localhost") {
+      document.cookie = `googtrans=${val}; path=/; domain=${host};`;
+      document.cookie = `googtrans=${val}; path=/; domain=.${host};`;
     }
   }
 
@@ -414,13 +429,21 @@
     document.head.appendChild(s);
   }
 
-  function terapkanBahasa(langCode, triggerLateCheck) {
+  function terapkanBahasa(langCode, dariKlikUser) {
+    const bahasaSebelumnya = bahasaAktif;
     bahasaAktif = langCode || "id";
     localStorage.setItem("mtx_lang", bahasaAktif);
     document.documentElement.lang = bahasaAktif;
     document.documentElement.dir = RTL_LANGS.has(bahasaAktif) ? "rtl" : "ltr";
 
     setCookieGoogTrans(bahasaAktif);
+
+    // Reload bersih 1x saat user mengganti bahasa agar tag <font> lama tidak bertumpuk/glitch
+    if (dariKlikUser && bahasaAktif !== bahasaSebelumnya) {
+      window.location.reload();
+      return;
+    }
+
     if (bahasaAktif !== "id") {
       muatMesinTerjemahDunia();
     }
@@ -433,7 +456,10 @@
     };
     Object.keys(tabMap).forEach((id) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = tabMap[id];
+      if (el) {
+        el.textContent = tabMap[id];
+        if (KAMUS_UI[bahasaAktif]) el.classList.add("notranslate");
+      }
     });
     updateBadgeNotif();
     pasangInfoHeader();
@@ -443,26 +469,30 @@
       renderGateStep();
     }
 
-    const combo = document.querySelector(".goog-te-combo");
-    if (combo) {
-      combo.value = bahasaAktif === "id" ? "" : bahasaAktif;
-      combo.dispatchEvent(new Event("change"));
-    } else if (triggerLateCheck && bahasaAktif !== "id") {
-      setTimeout(() => {
-        const comboLate = document.querySelector(".goog-te-combo");
-        if (comboLate) {
-          comboLate.value = bahasaAktif;
-          comboLate.dispatchEvent(new Event("change"));
+    const cobaSyncCombo = (percobaan = 0) => {
+      const combo = document.querySelector(".goog-te-combo");
+      if (combo) {
+        const targetVal = bahasaAktif === "id" ? "" : bahasaAktif;
+        if (combo.value !== targetVal) {
+          combo.value = targetVal;
+          combo.dispatchEvent(new Event("change"));
         }
-      }, 1200);
-    }
+      } else if (bahasaAktif !== "id" && percobaan < 20) {
+        setTimeout(() => cobaSyncCombo(percobaan + 1), 300);
+      }
+    };
+    cobaSyncCombo();
   }
 
   if (bahasaAktif !== "id") {
     setCookieGoogTrans(bahasaAktif);
     document.documentElement.lang = bahasaAktif;
     document.documentElement.dir = RTL_LANGS.has(bahasaAktif) ? "rtl" : "ltr";
-    window.addEventListener("load", muatMesinTerjemahDunia);
+    if (document.readyState === "loading") {
+      window.addEventListener("DOMContentLoaded", muatMesinTerjemahDunia);
+    } else {
+      muatMesinTerjemahDunia();
+    }
   }
 
   const STOPWORDS = new Set([
@@ -862,13 +892,40 @@
       border-color: #2e3440 !important;
     }
 
-    /* Sembunyikan toolbar Google Translate agar layout tetap bersih */
+    /* Sembunyikan total banner, spinner, dan popup hover Google Translate (versi lama & VIpgJd baru) */
     .goog-te-banner-frame.skiptranslate,
-    iframe.skiptranslate {
+    iframe.skiptranslate,
+    iframe.VIpgJd-ZVi9od-ORHb-OEVmcd,
+    .VIpgJd-ZVi9od-ORHb-OEVmcd,
+    .VIpgJd-ZVi9od-aZ2wEe-wOHMyf,
+    .VIpgJd-ZVi9od-aZ2wEe-OiiCO,
+    .VIpgJd-yAWNEb-L7lbkb,
+    #goog-gt-tt,
+    #goog-gt-vt,
+    .goog-te-balloon-frame,
+    .goog-te-menu-frame,
+    .goog-tooltip,
+    .goog-tooltip:hover,
+    div#goog-gt- {
       display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      width: 0 !important;
+      height: 0 !important;
     }
+
+    .goog-text-highlight,
+    .VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q:hover {
+      background-color: transparent !important;
+      background: none !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+
     body {
       top: 0px !important;
+      position: static !important;
     }
 
     #mtx-auth-gate {
@@ -1210,13 +1267,27 @@
   `;
   document.head.appendChild(style);
 
+  // Cegah Google Translate memunculkan popup hover saat kursor menyentuh tulisan
+  ["mouseover", "mouseenter", "mousemove"].forEach((namaEvent) => {
+    document.addEventListener(namaEvent, (e) => {
+      const el = e.target;
+      if (!el) return;
+      if (
+        el.tagName === "FONT" ||
+        (el.closest && el.closest("#goog-gt-tt, #goog-gt-vt, .VIpgJd-yAWNEb-L7lbkb, .VIpgJd-ZVi9od-aZ2wEe-wOHMyf"))
+      ) {
+        e.stopImmediatePropagation();
+      }
+    }, true);
+  });
+
   // 2. Onboarding Gate 3 Tahap:
   //    Tahap 1: Pilih Bahasa -> Tahap 2: Login / Daftar Akun -> Tahap 3: Pilih Tema -> Halaman Utama
   const gate = document.createElement("div");
   gate.id = "mtx-auth-gate";
   gate.innerHTML = `
     <div class="mtx-auth-card">
-      <h2 style="margin:0 0 8px; font-size:20px;">MiniTube X</h2>
+      <h2 class="notranslate" translate="no" style="margin:0 0 8px; font-size:20px;">MiniTube X</h2>
       <div class="mtx-wizard-steps" id="mtx-wizard-steps"></div>
 
       <!-- TAHAP 1: PILIH BAHASA DULU -->
@@ -1224,14 +1295,14 @@
         <div style="font-size:14.5px;font-weight:800;margin-bottom:3px;" id="mtx-s1-title"></div>
         <p style="margin:0 0 10px;font-size:12px;opacity:0.85;" id="mtx-s1-sub"></p>
         <input type="text" id="mtx-gate-lang-search" class="mtx-auth-input" placeholder="Cari bahasa dunia (Indonesia, English, 日本語, Jawa, Sunda, العربية)...">
-        <div class="mtx-gate-lang-box" id="mtx-gate-lang-list"></div>
+        <div class="mtx-gate-lang-box notranslate" translate="no" id="mtx-gate-lang-list"></div>
         <button type="button" id="mtx-gate-next-login" class="mtx-btn-email"></button>
       </div>
 
       <!-- TAHAP 2: LOGIN / DAFTAR AKUN -->
       <div id="mtx-gate-step-login" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--mtx-surface);border:1px solid var(--mtx-accent-border);border-radius:10px;padding:6px 10px;margin-bottom:10px;font-size:12px;">
-          <span>Bahasa: <strong id="mtx-gate-chosen-lang"></strong></span>
+          <span>Bahasa: <strong class="notranslate" translate="no" id="mtx-gate-chosen-lang"></strong></span>
           <button type="button" id="mtx-gate-back-lang" class="mtx-act-btn" style="padding:3px 9px;font-size:11px;"></button>
         </div>
         <div style="font-size:14.5px;font-weight:800;margin-bottom:3px;" id="mtx-s2-title"></div>
@@ -1252,7 +1323,7 @@
       <!-- TAHAP 2B: VERIFIKASI EMAIL -->
       <div id="mtx-gate-step-verif" style="display:none;">
         <p style="font-size:13px; line-height:1.5; margin:0 0 12px;">
-          Link verifikasi sudah dikirim ke <strong id="mtx-verif-email"></strong>.<br>
+          Link verifikasi sudah dikirim ke <strong class="notranslate" translate="no" id="mtx-verif-email"></strong>.<br>
           Buka inbox (atau folder Spam) email kamu lalu klik link-nya.
         </p>
         <button type="button" id="mtx-cek-verif" class="mtx-btn-email" style="margin-bottom:8px;">Saya Sudah Klik Link (Lanjut Pilih Tema)</button>
@@ -1286,7 +1357,7 @@
     });
 
     listBox.innerHTML = tersaring.map(([kode, nama]) => `
-      <button type="button" data-gate-lang="${kode}" class="mtx-lang-item ${bahasaAktif === kode ? "active" : ""}">
+      <button type="button" data-gate-lang="${kode}" class="mtx-lang-item notranslate ${bahasaAktif === kode ? "active" : ""}" translate="no">
         ${esc(nama)} ${bahasaAktif === kode ? "✓" : ""}
       </button>
     `).join("");
@@ -1295,7 +1366,6 @@
       btn.onclick = () => {
         const kode = btn.getAttribute("data-gate-lang");
         terapkanBahasa(kode, true);
-        renderGateLanguageList();
       };
     });
   }
@@ -1306,7 +1376,7 @@
     themeBox.innerHTML = DAFTAR_TEMA.map((t) => `
       <div data-gate-theme="${t.id}" class="mtx-theme-card ${temaAktif === t.id ? "active" : ""}">
         <div class="mtx-theme-swatch" style="background:${t.preview};"></div>
-        <div style="font-size:12.5px;font-weight:800;">${esc(t.nama)} ${temaAktif === t.id ? "✓" : ""}</div>
+        <div class="notranslate" translate="no" style="font-size:12.5px;font-weight:800;">${esc(t.nama)} ${temaAktif === t.id ? "✓" : ""}</div>
         <div style="font-size:11px;opacity:0.8;margin-top:2px;">${esc(t.desc)}</div>
       </div>
     `).join("");
@@ -1503,6 +1573,7 @@
     const notifs = Array.isArray(p?.notifications) ? p.notifications : [];
     const unread = notifs.filter((n) => !n.dibaca).length;
     btnNotif.textContent = unread > 0 ? `${tr("notif")} (${unread})` : tr("notif");
+    if (KAMUS_UI[bahasaAktif]) btnNotif.classList.add("notranslate");
   }
 
   // 3. Tambahkan Tab "Cari", "Notifikasi", "Disimpan", "Channel", dan "Pengaturan"
@@ -1529,7 +1600,7 @@
     tabsBaru.forEach((t) => {
       if (!document.getElementById(t.id)) {
         const btn = document.createElement("button");
-        btn.className = "tab-btn";
+        btn.className = "tab-btn" + (KAMUS_UI[bahasaAktif] ? " notranslate" : "");
         btn.id = t.id;
         btn.textContent = t.label;
         btn.onclick = () => {
@@ -1627,7 +1698,8 @@
     wrap.style.cssText = "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;";
 
     const pill = document.createElement("span");
-    pill.className = "mtx-user-pill";
+    pill.className = "mtx-user-pill notranslate";
+    pill.setAttribute("translate", "no");
     pill.title = "Buka Channel Saya";
     pill.innerHTML = `<img src="${resolveAvatarUrl(p.foto, p.nama)}" data-fallback-nama="${esc(p.nama)}"> <span>${esc(p.nama)}</span> ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}`;
     pill.onclick = () => {
@@ -1639,7 +1711,7 @@
 
     const btnSet = document.createElement("button");
     btnSet.type = "button";
-    btnSet.className = "win7-btn";
+    btnSet.className = "win7-btn" + (KAMUS_UI[bahasaAktif] ? " notranslate" : "");
     btnSet.textContent = tr("settings");
     btnSet.onclick = () => {
       komenTerbuka.clear();
@@ -1649,7 +1721,7 @@
 
     const btnOut = document.createElement("button");
     btnOut.type = "button";
-    btnOut.className = "win7-btn";
+    btnOut.className = "win7-btn" + (KAMUS_UI[bahasaAktif] ? " notranslate" : "");
     btnOut.textContent = tr("logout");
     btnOut.onclick = () => {
       if (confirm("Keluar dari akun MiniTube X?")) keluarDariAkun();
@@ -1985,6 +2057,7 @@
 
     const profilSaya = getProfilSaya();
     const jmlBlokir = Array.isArray(profilSaya?.blockedPosts) ? profilSaya.blockedPosts.length : 0;
+    const noTransCls = KAMUS_UI[bahasaAktif] ? " notranslate" : "";
 
     const modes = [
       { id: "algoritma", label: tr("forYou") },
@@ -1995,10 +2068,10 @@
     bar.innerHTML = `
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
         ${modes.map((m) => `
-          <button type="button" data-feed-mode="${m.id}" class="mtx-chip-btn ${modeFeed === m.id ? "active" : ""}">${m.label}</button>
+          <button type="button" data-feed-mode="${m.id}" class="mtx-chip-btn${noTransCls} ${modeFeed === m.id ? "active" : ""}">${m.label}</button>
         `).join("")}
       </div>
-      <button type="button" id="mtx-open-blokir" class="mtx-chip-btn">${tr("blocked")} (${jmlBlokir})</button>
+      <button type="button" id="mtx-open-blokir" class="mtx-chip-btn${noTransCls}">${tr("blocked")} (${jmlBlokir})</button>
     `;
 
     bar.querySelectorAll("[data-feed-mode]").forEach((btn) => {
@@ -2054,7 +2127,7 @@
           <div class="mtx-creator-info" id="mtx-spot-creator">
             <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
             <div>
-              <div style="font-size:13px;font-weight:800;">${esc(chNama)}</div>
+              <div class="notranslate" translate="no" style="font-size:13px;font-weight:800;">${esc(chNama)}</div>
               <div style="font-size:11px;opacity:0.75;">${formatWaktuSingkat(post.dibuatPada)}</div>
             </div>
           </div>
@@ -2155,14 +2228,14 @@
           const cNama = cProf ? cProf.nama : c.nama;
           const cFoto = cProf ? cProf.foto : c.foto;
           const replyTag = c.replyToNama
-            ? `<span style="font-size:10.5px;color:#0096c7;font-weight:700;">↳ membalas @${esc(c.replyToNama)}</span><br>`
+            ? `<span style="font-size:10.5px;color:#0096c7;font-weight:700;">↳ membalas <span class="notranslate" translate="no">@${esc(c.replyToNama)}</span></span><br>`
             : "";
           return `
             <div class="mtx-comment-item ${c.replyToNama ? "is-reply" : ""}">
               <img src="${resolveAvatarUrl(cFoto, cNama)}" data-fallback-nama="${esc(cNama)}">
               <div style="flex:1;min-width:0;">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-                  <strong>${esc(cNama)}</strong>
+                  <strong class="notranslate" translate="no">${esc(cNama)}</strong>
                   <span style="font-size:10px;opacity:0.7;">${formatWaktuSingkat(c.waktu)}</span>
                 </div>
                 ${replyTag}
@@ -2176,7 +2249,7 @@
     const activeReply = targetBalasKomen[post.id];
     const replyBannerHtml = activeReply
       ? `<div class="mtx-reply-banner">
-           <span>Membalas <strong>@${esc(activeReply.nama)}</strong></span>
+           <span>Membalas <strong class="notranslate" translate="no">@${esc(activeReply.nama)}</strong></span>
            <button type="button" class="mtx-cancel-reply" style="border:none;background:none;color:#c9184a;font-weight:800;cursor:pointer;">Batal</button>
          </div>`
       : "";
@@ -2284,6 +2357,7 @@
     const myEmail = userAktif.email.toLowerCase();
     const profilSaya = getProfilSaya();
     const daftarSaved = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
+    const noTransCls = KAMUS_UI[bahasaAktif] ? " notranslate" : "";
 
     Array.from(container.children).forEach((kartu) => {
       if (kartu.id === "mtx-algo-bar") return;
@@ -2311,7 +2385,7 @@
         <div class="mtx-creator-info" title="Lihat Channel ${esc(chNama)}">
           <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
           <div>
-            <div style="font-size:12.5px;font-weight:700;">${esc(chNama)}</div>
+            <div class="notranslate" translate="no" style="font-size:12.5px;font-weight:700;">${esc(chNama)}</div>
             <div style="font-size:11px;opacity:0.75;">${chFollowers.length} Pengikut</div>
           </div>
         </div>
@@ -2328,7 +2402,7 @@
       if (bukanMilikSendiri) {
         const btnFollow = document.createElement("button");
         btnFollow.type = "button";
-        btnFollow.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
+        btnFollow.className = "mtx-btn-follow" + noTransCls + (sudahFollow ? " following" : "");
         btnFollow.textContent = sudahFollow ? tr("followingBtn") : tr("follow");
         btnFollow.onclick = async (e) => {
           e.stopPropagation();
@@ -2354,7 +2428,7 @@
 
       const btnLike = document.createElement("button");
       btnLike.type = "button";
-      btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
+      btnLike.className = "mtx-act-btn" + noTransCls + (sudahLike ? " liked" : "");
       btnLike.textContent = `${sudahLike ? "♥" : "♡"} ${tr("like")} (${likes.length})`;
       btnLike.onclick = async (e) => {
         e.stopPropagation();
@@ -2367,7 +2441,7 @@
 
       const btnKomen = document.createElement("button");
       btnKomen.type = "button";
-      btnKomen.className = "mtx-act-btn";
+      btnKomen.className = "mtx-act-btn" + noTransCls;
       btnKomen.textContent = `${tr("comment")} (${comments.length})`;
       btnKomen.onclick = (e) => {
         e.stopPropagation();
@@ -2382,7 +2456,7 @@
 
       const btnShare = document.createElement("button");
       btnShare.type = "button";
-      btnShare.className = "mtx-act-btn";
+      btnShare.className = "mtx-act-btn" + noTransCls;
       btnShare.textContent = tr("share");
       btnShare.onclick = (e) => {
         e.stopPropagation();
@@ -2393,7 +2467,7 @@
 
       const btnSave = document.createElement("button");
       btnSave.type = "button";
-      btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
+      btnSave.className = "mtx-act-btn" + noTransCls + (sudahSave ? " saved" : "");
       btnSave.textContent = sudahSave ? tr("savedDone") : tr("save");
       btnSave.onclick = async (e) => {
         e.stopPropagation();
@@ -2406,7 +2480,7 @@
 
       const btnBlock = document.createElement("button");
       btnBlock.type = "button";
-      btnBlock.className = "mtx-act-btn block-btn";
+      btnBlock.className = "mtx-act-btn block-btn" + noTransCls;
       btnBlock.textContent = tr("blockSimilar");
       btnBlock.onclick = (e) => {
         e.stopPropagation();
@@ -2652,7 +2726,7 @@
       <div class="mtx-creator-info" title="Lihat Channel ${esc(chNama)}">
         <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}" style="width:36px;height:36px;">
         <div>
-          <div style="font-size:13px;font-weight:800;">${esc(chNama)}</div>
+          <div class="notranslate" translate="no" style="font-size:13px;font-weight:800;">${esc(chNama)}</div>
           <div style="font-size:11px;opacity:0.75;">${chFollowers.length} Pengikut</div>
         </div>
       </div>
@@ -2807,7 +2881,7 @@
               <div style="min-width:0;flex:1;">
                 <div style="display:flex;align-items:center;gap:6px;">
                   <span class="mtx-badge-tipe">${jenisLabel}</span>
-                  <strong style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.channelNama || p.penulis)}</strong>
+                  <strong class="notranslate" translate="no" style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.channelNama || p.penulis)}</strong>
                 </div>
                 <div style="font-size:12px;opacity:0.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px;">${esc(p.teks || p.file || "(Tanpa caption)")}</div>
               </div>
@@ -2831,8 +2905,8 @@
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;background:var(--mtx-surface);border:1px solid var(--mtx-accent-border);border-radius:13px;padding:12px;margin-bottom:12px;">
           <img src="${resolveAvatarUrl(profilSaya.foto, profilSaya.nama)}" data-fallback-nama="${esc(profilSaya.nama)}" style="width:58px;height:58px;border-radius:50%;object-fit:cover;border:2px solid #fff;">
           <div style="flex:1;min-width:190px;">
-            <div style="font-size:15px;font-weight:800;">${esc(profilSaya.nama)} ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}</div>
-            <div style="font-size:12px;opacity:0.8;">${esc(myEmail)}</div>
+            <div class="notranslate" translate="no" style="font-size:15px;font-weight:800;">${esc(profilSaya.nama)} ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}</div>
+            <div class="notranslate" translate="no" style="font-size:12px;opacity:0.8;">${esc(myEmail)}</div>
             <div style="font-size:11.5px;opacity:0.75;margin-top:2px;">Metode Masuk: <strong>${esc(metodeLoginLabel)}</strong> • Status: <strong>Terverifikasi</strong></div>
           </div>
         </div>
@@ -2889,7 +2963,7 @@
           ${DAFTAR_TEMA.map((t) => `
             <div data-pick-theme="${t.id}" class="mtx-theme-card ${temaAktif === t.id ? "active" : ""}">
               <div class="mtx-theme-swatch" style="background:${t.preview};"></div>
-              <div style="font-size:13px;font-weight:800;">${esc(t.nama)} ${temaAktif === t.id ? "✓" : ""}</div>
+              <div class="notranslate" translate="no" style="font-size:13px;font-weight:800;">${esc(t.nama)} ${temaAktif === t.id ? "✓" : ""}</div>
               <div style="font-size:11.5px;opacity:0.8;margin-top:2px;">${esc(t.desc)}</div>
             </div>
           `).join("")}
@@ -2900,12 +2974,12 @@
       <div class="mtx-channel-banner">
         <h3 style="margin:0 0 4px;font-size:15.5px;">4. Bahasa Dunia (${SEMUA_BAHASA_DUNIA.length} Bahasa Tersedia)</h3>
         <p style="margin:0 0 8px;font-size:12px;opacity:0.8;">
-          Bahasa aktif saat ini: <strong>${esc(bahasaAktifObj[1])}</strong>. Pilih bahasa mana saja di dunia untuk menerjemahkan aplikasi.
+          Bahasa aktif saat ini: <strong class="notranslate" translate="no">${esc(bahasaAktifObj[1])}</strong>. Pilih bahasa mana saja di dunia untuk menerjemahkan aplikasi.
         </p>
         <input type="text" id="mtx-lang-search" class="mtx-auth-input" placeholder="Cari bahasa (contoh: Inggris, Jepang, Jawa, Sunda, Arab, Rusia, Zulu)..." value="${esc(cariBahasaQuery)}">
-        <div class="mtx-lang-list" id="mtx-lang-list">
+        <div class="mtx-lang-list notranslate" translate="no" id="mtx-lang-list">
           ${bahasaTersaring.map(([kode, nama]) => `
-            <button type="button" data-pick-lang="${kode}" class="mtx-lang-item ${bahasaAktif === kode ? "active" : ""}">
+            <button type="button" data-pick-lang="${kode}" class="mtx-lang-item notranslate ${bahasaAktif === kode ? "active" : ""}" translate="no">
               ${esc(nama)} ${bahasaAktif === kode ? "✓" : ""}
             </button>
           `).join("")}
@@ -3083,10 +3157,7 @@
     wadah.querySelectorAll("[data-pick-lang]").forEach((btn) => {
       btn.onclick = () => {
         const kode = btn.getAttribute("data-pick-lang");
-        const langObj = SEMUA_BAHASA_DUNIA.find(([k]) => k === kode);
         terapkanBahasa(kode, true);
-        renderHalamanPengaturan();
-        tampilkanToast(`Bahasa diubah ke: ${langObj ? langObj[1] : kode}`);
       };
     });
   }
@@ -3123,7 +3194,7 @@
                 <img src="${resolveAvatarUrl(fotoPengirim, namaPengirim)}" data-fallback-nama="${esc(namaPengirim)}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:1.5px solid #fff;flex-shrink:0;">
                 <div style="min-width:0;">
                   <div style="font-size:13px;line-height:1.35;">
-                    <strong>${esc(namaPengirim)}</strong> ${ket}
+                    <strong class="notranslate" translate="no">${esc(namaPengirim)}</strong> ${ket}
                   </div>
                   ${isiPreview}
                   <div style="font-size:11px;opacity:0.7;margin-top:3px;">${formatWaktuSingkat(n.waktu)}</div>
@@ -3327,7 +3398,7 @@
           <div class="mtx-creator-info" style="flex:1;">
             <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" data-fallback-nama="${esc(ch.nama)}" style="width:40px;height:40px;">
             <div style="overflow:hidden;">
-              <div style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${highlightTeks(ch.nama, kataKunciCari)}</div>
+              <div class="notranslate" translate="no" style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${highlightTeks(ch.nama, kataKunciCari)}</div>
               <div style="font-size:11px;opacity:0.75;">${followers.length} Pengikut</div>
               <div style="font-size:11px;opacity:0.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${highlightTeks(ch.bio || "", kataKunciCari)}</div>
             </div>
@@ -3401,7 +3472,7 @@
         <div class="mtx-creator-info">
           <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
           <div>
-            <div style="font-size:12.5px;font-weight:700;">${highlightTeks(chNama, kataKunciCari)}</div>
+            <div class="notranslate" translate="no" style="font-size:12.5px;font-weight:700;">${highlightTeks(chNama, kataKunciCari)}</div>
             <div style="font-size:11px;opacity:0.75;">${chFollowers.length} Pengikut • ${formatWaktuSingkat(p.dibuatPada)}</div>
           </div>
         </div>
@@ -3611,8 +3682,8 @@
           <div style="display:flex;align-items:center;gap:12px;">
             <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" data-fallback-nama="${esc(ch.nama)}" style="width:68px;height:68px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,65,115,0.25);">
             <div>
-              <h2 style="margin:0;font-size:18px;">${esc(ch.nama)}</h2>
-              <div style="font-size:12px;opacity:0.75;">${esc(ch.email)}</div>
+              <h2 class="notranslate" translate="no" style="margin:0;font-size:18px;">${esc(ch.nama)}</h2>
+              <div class="notranslate" translate="no" style="font-size:12px;opacity:0.75;">${esc(ch.email)}</div>
               <p style="margin:5px 0 0;font-size:12.5px;">${esc(ch.bio || "Belum ada bio channel.")}</p>
             </div>
           </div>
@@ -3756,7 +3827,7 @@
       return `
         <div class="mtx-channel-banner" style="padding:14px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <strong style="font-size:13px;">${esc(p.channelNama || p.penulis)}</strong>
+            <strong class="notranslate" translate="no" style="font-size:13px;">${esc(p.channelNama || p.penulis)}</strong>
             <div style="display:flex;gap:6px;">
               <button type="button" data-saved-share="${p.id}" class="mtx-act-btn">${tr("share")}</button>
               <button type="button" data-unsave-id="${p.id}" class="mtx-act-btn saved">Hapus Simpanan</button>
