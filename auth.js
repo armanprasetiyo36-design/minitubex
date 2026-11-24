@@ -22,15 +22,31 @@
   let channelSedangDilihat = null;
   const komenTerbuka = new Set();
   const drafKomen = {};
+  const targetBalasKomen = {}; // postId -> { parentId, email, nama }
 
-  // State Pencarian
+  // State Pencarian, Algoritma, & Shared Post
   let kataKunciCari = "";
-  let filterCari = "semua"; // semua | video | short | foto | teks | channel
-  let urutCari = "terbaru";  // terbaru | populer
+  let filterCari = "semua";
+  let urutCari = "algoritma";
+  let modeFeed = localStorage.getItem("mtx_feed_mode") || "algoritma"; // algoritma | mengikuti | terbaru
+  let sharedPostHandled = false;
+
+  const STOPWORDS = new Set([
+    "yang", "dan", "di", "ke", "dari", "ini", "itu", "untuk", "dengan", "pada", "adalah",
+    "atau", "juga", "saya", "aku", "kamu", "dia", "mereka", "kita", "kami", "ada", "tidak",
+    "gak", "nggak", "bisa", "mau", "sudah", "udah", "lagi", "aja", "saja", "kalau", "kalo",
+    "the", "and", "for", "with", "this", "that", "from", "are", "was", "have", "you", "your",
+    "test", "video", "short", "shorts", "foto", "post", "postingan", "baru", "buat", "cara"
+  ]);
 
   function getServerUrl() {
     const params = new URLSearchParams(window.location.search);
     return params.get("server") || "";
+  }
+
+  function getSharedPostParam() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("post") || "";
   }
 
   function esc(str) {
@@ -53,11 +69,7 @@
   }
 
   function decodeSafe(str) {
-    try {
-      return decodeURIComponent(str);
-    } catch (e) {
-      return str;
-    }
+    try { return decodeURIComponent(str); } catch (e) { return str; }
   }
 
   function normText(str) {
@@ -96,6 +108,155 @@
     }
   }, true);
 
+  // Toast Pemberitahuan Ringan (Aero)
+  function tampilkanToast(pesan, labelAksi, callbackAksi) {
+    const lama = document.getElementById("mtx-toast");
+    if (lama) lama.remove();
+
+    const toast = document.createElement("div");
+    toast.id = "mtx-toast";
+    toast.className = "mtx-toast";
+    toast.innerHTML = `<span>${esc(pesan)}</span>`;
+
+    if (labelAksi && typeof callbackAksi === "function") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mtx-toast-btn";
+      btn.textContent = labelAksi;
+      btn.onclick = () => {
+        toast.remove();
+        callbackAksi();
+      };
+      toast.appendChild(btn);
+    }
+
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 5500);
+  }
+
+  // Ekstraksi Kata Kunci Topik untuk Algoritma & Blokir Konten Serupa
+  function ekstrakKataKunciPost(post) {
+    if (!post) return [];
+    const sumberTeks = [
+      post.teks || "",
+      post.file ? post.file.replace(/^\d+_/, "").replace(/\.[^.]+$/, "") : ""
+    ].join(" ").toLowerCase();
+
+    const tokens = sumberTeks
+      .replace(/[^a-z0-9\s_-]/g, " ")
+      .split(/[\s_-]+/)
+      .filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !/^\d+$/.test(w));
+
+    return Array.from(new Set(tokens)).slice(0, 8);
+  }
+
+  // Manajemen Skor Minat Algoritma per User (localStorage)
+  function getAffinityStore() {
+    if (!userAktif) return { keywords: {}, creators: {} };
+    const key = `mtx_algo_${userAktif.email.toLowerCase()}`;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || "{}");
+      return {
+        keywords: parsed.keywords || {},
+        creators: parsed.creators || {}
+      };
+    } catch (e) {
+      return { keywords: {}, creators: {} };
+    }
+  }
+
+  function catatSinyalAlgoritma(post, bobot) {
+    if (!userAktif || !post) return;
+    const key = `mtx_algo_${userAktif.email.toLowerCase()}`;
+    const store = getAffinityStore();
+
+    if (post.email) {
+      const em = post.email.toLowerCase();
+      store.creators[em] = Math.max(-50, Math.min(200, (store.creators[em] || 0) + bobot * 1.5));
+    }
+    ekstrakKataKunciPost(post).forEach((kw) => {
+      store.keywords[kw] = Math.max(-50, Math.min(200, (store.keywords[kw] || 0) + bobot));
+    });
+
+    try {
+      localStorage.setItem(key, JSON.stringify(store));
+    } catch (e) {}
+  }
+
+  function cekPostDiblokir(post, profilSaya) {
+    if (!post || !profilSaya) return false;
+    const blkPosts = Array.isArray(profilSaya.blockedPosts) ? profilSaya.blockedPosts : [];
+    if (blkPosts.includes(post.id)) return true;
+
+    const blkKeywords = Array.isArray(profilSaya.blockedKeywords) ? profilSaya.blockedKeywords : [];
+    if (blkKeywords.length === 0) return false;
+
+    const kwList = blkKeywords.map((item) => (typeof item === "string" ? item : item.keyword || "").toLowerCase()).filter(Boolean);
+    const teksGabung = `${post.teks || ""} ${post.file || ""}`.toLowerCase();
+    const postKws = ekstrakKataKunciPost(post);
+
+    return kwList.some((kw) => postKws.includes(kw) || teksGabung.includes(kw));
+  }
+
+  function hitungSkorAlgoritma(post) {
+    const myEmail = userAktif ? userAktif.email.toLowerCase() : "";
+    const store = getAffinityStore();
+    const chData = daftarChannelCache.find((c) => c.email === (post.email || "").toLowerCase());
+    const isFollowing = chData && Array.isArray(chData.followers) && chData.followers.includes(myEmail);
+
+    let skor = 0;
+    // 1. Sinyal Follow
+    if (isFollowing) skor += 35;
+
+    // 2. Sinyal Afinitas Kreator & Kata Kunci dari Interaksi Pengguna
+    const em = (post.email || "").toLowerCase();
+    if (em && store.creators[em]) skor += store.creators[em];
+
+    const postKws = ekstrakKataKunciPost(post);
+    postKws.forEach((kw) => {
+      if (store.keywords[kw]) skor += store.keywords[kw];
+    });
+
+    // 3. Popularitas Sosial (Like + Komentar)
+    const likesCount = Array.isArray(post.likes) ? post.likes.length : 0;
+    const commCount  = Array.isArray(post.comments) ? post.comments.length : 0;
+    skor += likesCount * 3 + commCount * 5;
+
+    // 4. Kesegaran Waktu (Freshness decay per jam)
+    const umurJam = Math.max(0, (Date.now() / 1000 - (post.dibuatPada || 0)) / 3600);
+    skor += Math.max(0, 30 - umurJam * 1.4);
+
+    return skor;
+  }
+
+  function terapkanFilterDanAlgoritma(rawPosts) {
+    if (!Array.isArray(rawPosts)) return [];
+    const profilSaya = getProfilSaya();
+    const myEmail = userAktif ? userAktif.email.toLowerCase() : "";
+
+    // 1. Saring konten yang diblokir & konten serupa
+    let hasil = rawPosts.filter((p) => !cekPostDiblokir(p, profilSaya));
+
+    // 2. Mode Feed: Mengikuti vs Terbaru vs Algoritma
+    if (modeFeed === "mengikuti" && myEmail) {
+      hasil = hasil.filter((p) => {
+        const em = (p.email || "").toLowerCase();
+        if (em === myEmail) return true;
+        const ch = daftarChannelCache.find((c) => c.email === em);
+        return ch && Array.isArray(ch.followers) && ch.followers.includes(myEmail);
+      });
+      hasil.sort((a, b) => (b.dibuatPada || 0) - (a.dibuatPada || 0));
+    } else if (modeFeed === "terbaru") {
+      hasil.sort((a, b) => (b.dibuatPada || 0) - (a.dibuatPada || 0));
+    } else {
+      hasil.sort((a, b) => hitungSkorAlgoritma(b) - hitungSkorAlgoritma(a));
+    }
+
+    return hasil;
+  }
+
   function sedangSibukInteraksi() {
     const aktif = document.activeElement;
     if (aktif && (aktif.tagName === "INPUT" || aktif.tagName === "TEXTAREA" || aktif.tagName === "SELECT")) {
@@ -125,7 +286,7 @@
     }
   }, true);
 
-  // 1. CSS Frutiger Aero Bersih & Responsif
+  // 1. CSS Frutiger Aero Lengkap
   const style = document.createElement("style");
   style.textContent = `
     #mtx-auth-gate {
@@ -195,8 +356,8 @@
     }
     .mtx-act-btn {
       background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(225,245,255,0.9) 100%);
-      border: 1px solid #b5e2fa; border-radius: 10px; padding: 5px 10px;
-      font-size: 12px; font-weight: 700; color: #0a466b; cursor: pointer;
+      border: 1px solid #b5e2fa; border-radius: 10px; padding: 5px 9px;
+      font-size: 11.5px; font-weight: 700; color: #0a466b; cursor: pointer;
     }
     .mtx-act-btn.liked {
       background: linear-gradient(180deg, #ff758f 0%, #c9184a 100%);
@@ -206,22 +367,37 @@
       background: linear-gradient(180deg, #ffb703 0%, #fb8500 100%);
       color: #fff; border-color: #fff;
     }
+    .mtx-act-btn.block-btn {
+      color: #7b2cbf; border-color: #d8bbff;
+    }
     .mtx-btn-hapus-card {
       background: linear-gradient(180deg, #ff6b6b, #c9184a);
       color: #fff; border: 1px solid #fff; border-radius: 10px;
-      padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+      padding: 5px 9px; font-size: 11.5px; font-weight: 700; cursor: pointer;
     }
     .mtx-comment-box {
-      margin-top: 8px; background: rgba(255,255,255,0.88);
+      margin-top: 8px; background: rgba(255,255,255,0.9);
       border: 1px solid #bce3fa; border-radius: 11px; padding: 8px 10px; text-align: left;
     }
     .mtx-comment-item {
       display: flex; gap: 8px; align-items: flex-start;
-      padding: 5px 0; border-bottom: 1px solid rgba(142,202,230,0.45); font-size: 12px;
+      padding: 6px 0; border-bottom: 1px solid rgba(142,202,230,0.45); font-size: 12px;
+    }
+    .mtx-comment-item.is-reply {
+      margin-left: 18px; padding-left: 8px; border-left: 2px solid #90e0ef;
     }
     .mtx-comment-item:last-child { border-bottom: none; }
     .mtx-comment-item img {
       width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-top: 2px; flex-shrink: 0;
+    }
+    .mtx-reply-link {
+      background: none; border: none; color: #0077b6; font-size: 11px; font-weight: 700;
+      cursor: pointer; padding: 2px 0 0; margin-top: 2px;
+    }
+    .mtx-reply-banner {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #e0f4ff; border: 1px solid #90e0ef; border-radius: 8px;
+      padding: 4px 8px; font-size: 11.5px; color: #064266; margin-bottom: 6px;
     }
     .mtx-channel-banner {
       background: linear-gradient(135deg, rgba(240,250,255,0.94), rgba(205,238,255,0.9));
@@ -233,7 +409,15 @@
       border-radius: 10px; padding: 5px 10px; font-size: 12px; font-weight: 700;
     }
 
-    /* Gaya Halaman Pencarian */
+    /* Bar Algoritma & Kelola Blokir di Feed */
+    .mtx-algo-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(215,242,255,0.84));
+      border: 1.5px solid #ffffff; border-radius: 14px; padding: 8px 12px; margin-bottom: 12px;
+      box-shadow: 0 4px 14px rgba(0, 55, 100, 0.14);
+    }
+
+    /* Pencarian */
     .mtx-search-box-wrap {
       display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
     }
@@ -241,11 +425,6 @@
       flex: 1; padding: 10px 14px; border-radius: 12px;
       border: 1.5px solid #8ecae6; background: rgba(255,255,255,0.96);
       font-size: 14px; color: #083d63; outline: none;
-      box-shadow: inset 0 1px 4px rgba(0, 60, 110, 0.08);
-    }
-    .mtx-search-input:focus {
-      border-color: #0096c7;
-      box-shadow: 0 0 0 3px rgba(72, 202, 228, 0.25);
     }
     .mtx-filter-row {
       display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between;
@@ -254,24 +433,23 @@
       display: flex; flex-wrap: wrap; gap: 6px;
     }
     .mtx-chip-btn {
-      padding: 5px 12px; border-radius: 14px; border: 1px solid #90e0ef;
-      background: rgba(255,255,255,0.85); color: #09456b;
-      font-size: 12px; font-weight: 700; cursor: pointer;
+      padding: 5px 11px; border-radius: 13px; border: 1px solid #90e0ef;
+      background: rgba(255,255,255,0.88); color: #09456b;
+      font-size: 11.5px; font-weight: 700; cursor: pointer;
     }
     .mtx-chip-btn.active {
       background: linear-gradient(180deg, #38b6ff 0%, #0077b6 100%);
       color: #ffffff; border-color: #ffffff;
-      box-shadow: 0 2px 8px rgba(0, 119, 182, 0.3);
     }
     .mtx-sort-select {
       padding: 5px 10px; border-radius: 10px; border: 1px solid #90e0ef;
-      background: rgba(255,255,255,0.9); color: #09456b;
+      background: rgba(255,255,255,0.92); color: #09456b;
       font-size: 12px; font-weight: 700; outline: none; cursor: pointer;
     }
     .mtx-badge-tipe {
       display: inline-block; padding: 2px 8px; border-radius: 8px;
       background: linear-gradient(180deg, #caf0f8, #90e0ef);
-      color: #034066; font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px;
+      color: #034066; font-size: 10.5px; font-weight: 800;
     }
     .mtx-hl {
       background: #fff3b0; color: #052c47; padding: 0 3px; border-radius: 4px;
@@ -286,165 +464,100 @@
       justify-content: space-between; gap: 10px;
     }
 
+    /* Notifikasi */
+    .mtx-notif-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: rgba(255,255,255,0.88); border: 1px solid #bce3fa;
+      border-radius: 13px; padding: 11px 13px; margin-bottom: 8px; cursor: pointer;
+      color: #083d63; text-align: left;
+    }
+    .mtx-notif-item.unread {
+      background: linear-gradient(180deg, #ffffff 0%, #dff4ff 100%);
+      border: 1.5px solid #38b6ff;
+      box-shadow: 0 3px 10px rgba(0, 119, 182, 0.16);
+    }
+    .mtx-notif-dot {
+      width: 9px; height: 9px; border-radius: 50%; background: #0096c7; flex-shrink: 0;
+    }
+
+    /* Modal Spotlight & Kelola Blokir */
+    .mtx-modal-backdrop {
+      position: fixed; inset: 0; z-index: 9998;
+      background: rgba(8, 42, 74, 0.72); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; padding: 14px;
+    }
+    .mtx-modal-box {
+      width: 100%; max-width: 560px; max-height: 86vh; overflow-y: auto;
+      background: linear-gradient(180deg, rgba(248,253,255,0.98), rgba(216,241,255,0.96));
+      border: 1.5px solid #ffffff; border-radius: 18px; padding: 16px;
+      box-shadow: 0 14px 36px rgba(0, 25, 55, 0.45); color: #083d63;
+    }
+
+    /* Toast */
+    .mtx-toast {
+      position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+      z-index: 10001; display: flex; align-items: center; gap: 10px;
+      background: linear-gradient(180deg, rgba(16, 78, 125, 0.96), rgba(9, 48, 82, 0.96));
+      color: #ffffff; border: 1.5px solid #90e0ef; border-radius: 14px;
+      padding: 9px 14px; font-size: 12.5px; font-weight: 700;
+      box-shadow: 0 8px 24px rgba(0, 20, 45, 0.45); max-width: 92vw;
+    }
+    .mtx-toast-btn {
+      background: #48cae4; color: #042a42; border: none; border-radius: 8px;
+      padding: 4px 10px; font-size: 11.5px; font-weight: 800; cursor: pointer; white-space: nowrap;
+    }
+
     /* Dock Shorts */
     .mtx-shorts-dock {
-      position: absolute;
-      right: 10px;
-      bottom: 116px;
-      z-index: 25;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      pointer-events: auto;
+      position: absolute; right: 10px; bottom: 116px; z-index: 25;
+      display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: auto;
     }
     .mtx-short-avatar-wrap {
-      position: relative;
-      cursor: pointer;
-      margin-bottom: 4px;
+      position: relative; cursor: pointer; margin-bottom: 4px;
     }
     .mtx-short-avatar-wrap img {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 2px solid #ffffff;
-      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
-      display: block;
+      width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
+      border: 2px solid #ffffff; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45); display: block;
     }
     .mtx-short-follow-badge {
-      position: absolute;
-      bottom: -6px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(180deg, #38b6ff, #0077b6);
-      color: #fff;
-      border: 1.5px solid #fff;
-      border-radius: 8px;
-      padding: 0 5px;
-      font-size: 10px;
-      font-weight: 800;
-      cursor: pointer;
-      line-height: 14px;
+      position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
+      background: linear-gradient(180deg, #38b6ff, #0077b6); color: #fff;
+      border: 1.5px solid #fff; border-radius: 8px; padding: 0 5px;
+      font-size: 10px; font-weight: 800; cursor: pointer; line-height: 14px;
     }
-    .mtx-short-follow-badge.following {
-      background: #2ec4b6;
-    }
+    .mtx-short-follow-badge.following { background: #2ec4b6; }
     .mtx-short-pill-btn {
-      width: 44px;
-      min-height: 40px;
-      border-radius: 13px;
+      width: 46px; min-height: 36px; border-radius: 12px;
       border: 1.5px solid rgba(255, 255, 255, 0.92);
       background: linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(195,235,255,0.82) 100%);
-      backdrop-filter: blur(8px);
-      box-shadow: 0 3px 10px rgba(0, 30, 60, 0.35);
-      color: #073759;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 3px 2px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 800;
-      line-height: 1.15;
+      backdrop-filter: blur(8px); box-shadow: 0 3px 10px rgba(0, 30, 60, 0.35);
+      color: #073759; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 3px 2px; cursor: pointer; font-size: 10.5px; font-weight: 800; line-height: 1.15;
     }
-    .mtx-short-pill-btn span {
-      font-size: 10px;
-      font-weight: 700;
-    }
-    .mtx-short-pill-btn.liked {
-      background: linear-gradient(180deg, #ff758f, #c9184a);
-      color: #fff;
-    }
-    .mtx-short-pill-btn.saved {
-      background: linear-gradient(180deg, #ffb703, #fb8500);
-      color: #fff;
-    }
-    .mtx-short-pill-btn.del {
-      background: linear-gradient(180deg, #ff6b6b, #c9184a);
-      color: #fff;
-    }
+    .mtx-short-pill-btn span { font-size: 9.5px; font-weight: 700; }
+    .mtx-short-pill-btn.liked { background: linear-gradient(180deg, #ff758f, #c9184a); color: #fff; }
+    .mtx-short-pill-btn.saved { background: linear-gradient(180deg, #ffb703, #fb8500); color: #fff; }
+    .mtx-short-pill-btn.del { background: linear-gradient(180deg, #ff6b6b, #c9184a); color: #fff; }
     .mtx-shorts-drawer {
-      position: absolute;
-      left: 10px;
-      right: 62px;
-      bottom: 54px;
-      z-index: 35;
+      position: absolute; left: 10px; right: 64px; bottom: 54px; z-index: 35;
       background: linear-gradient(180deg, rgba(245,252,255,0.97), rgba(215,240,255,0.96));
-      border: 1.5px solid #ffffff;
-      border-radius: 14px;
-      padding: 10px;
-      box-shadow: 0 10px 26px rgba(0, 25, 55, 0.5);
-      color: #093b5c;
-      text-align: left;
+      border: 1.5px solid #ffffff; border-radius: 14px; padding: 10px;
+      box-shadow: 0 10px 26px rgba(0, 25, 55, 0.5); color: #093b5c; text-align: left;
     }
 
     @media (max-width: 640px) {
-      .aero-navbar {
-        flex-direction: column !important;
-        align-items: stretch !important;
-        gap: 8px !important;
-        padding: 10px 12px !important;
-      }
-      .brand-area {
-        justify-content: space-between !important;
-      }
-      .nav-actions {
-        display: flex !important;
-        flex-wrap: wrap !important;
-        gap: 6px !important;
-        justify-content: flex-start !important;
-      }
-      .nav-actions .win7-btn,
-      .mtx-btn-kompres {
-        padding: 5px 9px !important;
-        font-size: 11.5px !important;
-        margin-right: 0 !important;
-      }
-      .aero-tabs {
-        display: flex !important;
-        overflow-x: auto !important;
-        white-space: nowrap !important;
-        justify-content: flex-start !important;
-        gap: 6px !important;
-        padding: 6px 10px !important;
-        -webkit-overflow-scrolling: touch;
-      }
-      .aero-tabs::-webkit-scrollbar {
-        display: none;
-      }
-      .aero-tabs .tab-btn {
-        flex: 0 0 auto !important;
-        padding: 6px 12px !important;
-        font-size: 12px !important;
-      }
-      .main-container {
-        padding: 10px 8px !important;
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-      }
-      .form-row {
-        flex-direction: column !important;
-        gap: 8px !important;
-      }
-      .mtx-shorts-dock {
-        right: 8px;
-        bottom: 112px;
-        gap: 6px;
-      }
-      .mtx-short-pill-btn {
-        width: 40px;
-        min-height: 36px;
-        border-radius: 11px;
-        font-size: 11px;
-      }
-      .mtx-shorts-drawer {
-        left: 8px;
-        right: 54px;
-        bottom: 50px;
-      }
+      .aero-navbar { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; padding: 10px 12px !important; }
+      .brand-area { justify-content: space-between !important; }
+      .nav-actions { display: flex !important; flex-wrap: wrap !important; gap: 6px !important; justify-content: flex-start !important; }
+      .nav-actions .win7-btn, .mtx-btn-kompres { padding: 5px 9px !important; font-size: 11.5px !important; margin-right: 0 !important; }
+      .aero-tabs { display: flex !important; overflow-x: auto !important; white-space: nowrap !important; justify-content: flex-start !important; gap: 6px !important; padding: 6px 10px !important; -webkit-overflow-scrolling: touch; }
+      .aero-tabs::-webkit-scrollbar { display: none; }
+      .aero-tabs .tab-btn { flex: 0 0 auto !important; padding: 6px 11px !important; font-size: 12px !important; }
+      .main-container { padding: 10px 8px !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+      .form-row { flex-direction: column !important; gap: 8px !important; }
+      .mtx-shorts-dock { right: 8px; bottom: 110px; gap: 5px; }
+      .mtx-short-pill-btn { width: 42px; min-height: 33px; border-radius: 10px; font-size: 9.5px; }
+      .mtx-shorts-drawer { left: 8px; right: 56px; bottom: 50px; }
     }
   `;
   document.head.appendChild(style);
@@ -460,18 +573,12 @@
       </p>
 
       <div id="mtx-form-login">
-        <button type="button" id="mtx-login-google" class="mtx-btn-google">
-          Masuk Cepat dengan Google
-        </button>
-
+        <button type="button" id="mtx-login-google" class="mtx-btn-google">Masuk Cepat dengan Google</button>
         <div style="font-size:11.5px; color:#4a7c9b; margin:8px 0;">atau pakai email apapun</div>
-
         <input type="text" id="mtx-reg-nama" class="mtx-auth-input" placeholder="Nama Channel kamu (khusus daftar baru)" style="display:none;">
         <input type="email" id="mtx-auth-email" class="mtx-auth-input" placeholder="Alamat email kamu (contoh: nama@gmail.com)">
         <input type="password" id="mtx-auth-pass" class="mtx-auth-input" placeholder="Password (minimal 6 karakter)">
-
         <button type="button" id="mtx-submit-email" class="mtx-btn-email">Masuk dengan Email</button>
-
         <p style="margin:10px 0 0; font-size:12px;">
           <span id="mtx-toggle-text">Belum punya akun email?</span>
           <a href="#" id="mtx-toggle-mode" style="color:#0077b6; font-weight:700;">Daftar Baru</a>
@@ -578,7 +685,10 @@
       bio: "Kreator di MiniTube X",
       foto: userAktif.photoURL || "",
       followers: [],
-      saved: []
+      saved: [],
+      notifications: [],
+      blockedPosts: [],
+      blockedKeywords: []
     };
   }
 
@@ -596,76 +706,63 @@
     return userAktif && userAktif.email && userAktif.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   }
 
-  // 3. Tambahkan Tab "Cari", "Disimpan", dan "Channel"
+  function updateBadgeNotif() {
+    const btnNotif = document.getElementById("tab-notif");
+    if (!btnNotif) return;
+    const p = getProfilSaya();
+    const notifs = Array.isArray(p?.notifications) ? p.notifications : [];
+    const unread = notifs.filter((n) => !n.dibaca).length;
+    btnNotif.textContent = unread > 0 ? `Notifikasi (${unread})` : "Notifikasi";
+  }
+
+  // 3. Tambahkan Tab "Cari", "Notifikasi", "Disimpan", dan "Channel"
   function pasangTabSosial() {
     const navTabs = document.querySelector(".aero-tabs");
     const mainEl  = document.querySelector(".main-container");
     if (!navTabs || !mainEl) return;
 
-    if (!document.getElementById("tab-search")) {
-      const btnSearch = document.createElement("button");
-      btnSearch.className = "tab-btn";
-      btnSearch.id = "tab-search";
-      btnSearch.textContent = "Cari";
-      btnSearch.onclick = () => {
-        komenTerbuka.clear();
-        bukaTabKhusus("search");
-      };
-      navTabs.appendChild(btnSearch);
-    }
+    const tabsBaru = [
+      { id: "tab-search", label: "Cari", action: () => bukaTabKhusus("search") },
+      { id: "tab-notif",  label: "Notifikasi", action: () => bukaTabKhusus("notif") },
+      { id: "tab-saved",  label: "Disimpan", action: () => bukaTabKhusus("saved") },
+      {
+        id: "tab-channel",
+        label: "Channel",
+        action: () => {
+          channelSedangDilihat = userAktif ? userAktif.email.toLowerCase() : null;
+          bukaTabKhusus("channel");
+        }
+      }
+    ];
 
-    if (!document.getElementById("tab-saved")) {
-      const btnSaved = document.createElement("button");
-      btnSaved.className = "tab-btn";
-      btnSaved.id = "tab-saved";
-      btnSaved.textContent = "Disimpan";
-      btnSaved.onclick = () => {
-        komenTerbuka.clear();
-        bukaTabKhusus("saved");
-      };
-      navTabs.appendChild(btnSaved);
-    }
+    tabsBaru.forEach((t) => {
+      if (!document.getElementById(t.id)) {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn";
+        btn.id = t.id;
+        btn.textContent = t.label;
+        btn.onclick = () => {
+          komenTerbuka.clear();
+          t.action();
+        };
+        navTabs.appendChild(btn);
+      }
+    });
 
-    if (!document.getElementById("tab-channel")) {
-      const btnCh = document.createElement("button");
-      btnCh.className = "tab-btn";
-      btnCh.id = "tab-channel";
-      btnCh.textContent = "Channel";
-      btnCh.onclick = () => {
-        komenTerbuka.clear();
-        channelSedangDilihat = userAktif ? userAktif.email.toLowerCase() : null;
-        bukaTabKhusus("channel");
-      };
-      navTabs.appendChild(btnCh);
-    }
-
-    if (!document.getElementById("view-search")) {
-      const secSearch = document.createElement("section");
-      secSearch.id = "view-search";
-      secSearch.className = "hidden";
-      mainEl.appendChild(secSearch);
-    }
-
-    if (!document.getElementById("view-saved")) {
-      const secSaved = document.createElement("section");
-      secSaved.id = "view-saved";
-      secSaved.className = "feed-container hidden";
-      mainEl.appendChild(secSaved);
-    }
-
-    if (!document.getElementById("view-channel")) {
-      const secCh = document.createElement("section");
-      secCh.id = "view-channel";
-      secCh.className = "hidden";
-      mainEl.appendChild(secCh);
-    }
+    ["view-search", "view-notif", "view-saved", "view-channel"].forEach((vidId) => {
+      if (!document.getElementById(vidId)) {
+        const sec = document.createElement("section");
+        sec.id = vidId;
+        sec.className = vidId === "view-saved" ? "feed-container hidden" : "hidden";
+        mainEl.appendChild(sec);
+      }
+    });
   }
   pasangTabSosial();
 
   function bukaTabKhusus(namaTab) {
-    ["view-feed", "view-video", "view-short", "view-search", "view-saved", "view-channel"].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.classList.add("hidden");
+    ["view-feed", "view-video", "view-short", "view-search", "view-notif", "view-saved", "view-channel"].forEach((id) => {
+      document.getElementById(id)?.classList.add("hidden");
     });
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
 
@@ -673,6 +770,10 @@
       document.getElementById("view-search")?.classList.remove("hidden");
       document.getElementById("tab-search")?.classList.add("active");
       renderHalamanCari(false);
+    } else if (namaTab === "notif") {
+      document.getElementById("view-notif")?.classList.remove("hidden");
+      document.getElementById("tab-notif")?.classList.add("active");
+      renderHalamanNotifikasi();
     } else if (namaTab === "saved") {
       document.getElementById("view-saved")?.classList.remove("hidden");
       document.getElementById("tab-saved")?.classList.add("active");
@@ -689,16 +790,16 @@
     if (!btn) return;
     if (["tab-feed", "tab-video", "tab-short"].includes(btn.id)) {
       komenTerbuka.clear();
-      ["view-search", "view-saved", "view-channel"].forEach((id) => document.getElementById(id)?.classList.add("hidden"));
-      ["tab-search", "tab-saved", "tab-channel"].forEach((id) => document.getElementById(id)?.classList.remove("active"));
+      ["view-search", "view-notif", "view-saved", "view-channel"].forEach((id) => document.getElementById(id)?.classList.add("hidden"));
+      ["tab-search", "tab-notif", "tab-saved", "tab-channel"].forEach((id) => document.getElementById(id)?.classList.remove("active"));
       setTimeout(() => {
+        pasangBarAlgoritmaFeed();
         pasangKontrolSemua(true);
         updatePemutarUtamaSocial(true);
       }, 80);
     }
   });
 
-  // Pintasan keyboard '/' untuk langsung buka pencarian saat tidak sedang mengetik
   document.addEventListener("keydown", (e) => {
     if (e.key === "/" && userAktif) {
       const aktif = document.activeElement;
@@ -756,15 +857,14 @@
           daftarChannelCache = list;
           kunciInputNama();
           pasangInfoHeader();
-          if (!document.getElementById("view-search")?.classList.contains("hidden")) {
-            renderHasilCariSaja();
-          }
+          updateBadgeNotif();
+          pasangBarAlgoritmaFeed();
+          if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
+          if (!document.getElementById("view-notif")?.classList.contains("hidden")) renderHalamanNotifikasi();
           if (!document.getElementById("view-channel")?.classList.contains("hidden")) {
             renderHalamanChannel(channelSedangDilihat || userAktif.email.toLowerCase());
           }
-          if (!document.getElementById("view-saved")?.classList.contains("hidden")) {
-            renderHalamanDisimpan();
-          }
+          if (!document.getElementById("view-saved")?.classList.contains("hidden")) renderHalamanDisimpan();
         }
       }
     } catch (e) {}
@@ -801,7 +901,7 @@
   auth.onAuthStateChanged(terapkanStatusUser);
   setInterval(() => { if (userAktif) kunciInputNama(); }, 2000);
 
-  // 5. Interceptor Fetch
+  // 5. Interceptor Fetch (Menyuntikkan Auth + Filter Blokir + Algoritma Rekomendasi)
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function (resource, options) {
     const urlStr = typeof resource === "string" ? resource : (resource && resource.url) || "";
@@ -817,26 +917,35 @@
     const response = await nativeFetch(resource, opts);
 
     if (urlStr.includes("/api/posts") && response.ok) {
-      response.clone().json().then((data) => {
-        if (Array.isArray(data)) {
-          daftarPostCache = data;
+      try {
+        const rawData = await response.clone().json();
+        if (Array.isArray(rawData)) {
+          daftarPostCache = rawData;
+          const hasilTampil = terapkanFilterDanAlgoritma(rawData);
+
           if (!sedangSibukInteraksi()) {
             setTimeout(() => {
+              pasangBarAlgoritmaFeed();
               pasangKontrolSemua(true);
               updatePemutarUtamaSocial(true);
-              if (!document.getElementById("view-search")?.classList.contains("hidden")) {
-                renderHasilCariSaja();
-              }
+              cekBukaSharedPost();
+              if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
             }, 120);
           }
+
+          return new Response(JSON.stringify(hasilTampil), {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
         }
-      }).catch(() => {});
+      } catch (e) {}
     }
 
     return response;
   };
 
-  // 6. Aksi Sosial API
+  // 6. Aksi Sosial API (Like, Comment/Reply, Follow, Save, Block, Share)
   async function kirimAksiApi(endpoint, payload) {
     const serverUrl = getServerUrl();
     if (!serverUrl || !userAktif) return false;
@@ -856,14 +965,19 @@
     return true;
   }
 
-  async function segarkanSosial() {
+  async function segarkanSosial(reRenderFeed) {
     const serverUrl = getServerUrl();
     if (!serverUrl) return;
     await muatDataChannel();
+    if (reRenderFeed && typeof renderSemuaTab === "function") {
+      renderSemuaTab();
+      return;
+    }
     try {
       const res = await nativeFetch(`${serverUrl}/api/posts?t=${Date.now()}`, { cache: "no-store" });
       if (res.ok) {
         daftarPostCache = await res.json();
+        pasangBarAlgoritmaFeed();
         pasangKontrolSemua(true);
         updatePemutarUtamaSocial(true);
         if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
@@ -873,6 +987,299 @@
         }
       }
     } catch (e) {}
+  }
+
+  function bagikanPostingan(post) {
+    if (!post) return;
+    const serverUrl = getServerUrl();
+    const baseUrl = `${window.location.origin}${window.location.pathname}`;
+    const shareUrl = `${baseUrl}?server=${encodeURIComponent(serverUrl)}&post=${encodeURIComponent(post.id)}`;
+    const judul = post.teks ? post.teks.slice(0, 80) : "Postingan di MiniTube X";
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        tampilkanToast("Link postingan berhasil disalin ke clipboard.");
+      }).catch(() => {
+        prompt("Salin link postingan ini:", shareUrl);
+      });
+    } else {
+      prompt("Salin link postingan ini:", shareUrl);
+    }
+
+    if (navigator.share && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      navigator.share({ title: "MiniTube X", text: judul, url: shareUrl }).catch(() => {});
+    }
+  }
+
+  async function blokirKontenSerupa(post) {
+    if (!post) return;
+    const keywords = ekstrakKataKunciPost(post);
+    const title = post.teks ? post.teks.slice(0, 60) : (post.file || "Postingan tanpa judul");
+
+    catatSinyalAlgoritma(post, -25);
+    const ok = await kirimAksiApi("/api/block", {
+      action: "block",
+      postId: post.id,
+      title,
+      keywords
+    });
+
+    if (ok) {
+      komenTerbuka.delete(post.id);
+      await segarkanSosial(true);
+      const infoKw = keywords.length > 0 ? ` (topik: ${keywords.slice(0, 3).join(", ")})` : "";
+      tampilkanToast(
+        `Konten ini & konten serupa diblokir${infoKw}.`,
+        "Buka Blokir",
+        async () => {
+          await bukaBlokirVideo(post.id, keywords);
+        }
+      );
+    }
+  }
+
+  async function bukaBlokirVideo(postId, keywords) {
+    const ok = await kirimAksiApi("/api/block", {
+      action: "unblock",
+      postId,
+      keywords: keywords || []
+    });
+    if (ok) {
+      await segarkanSosial(true);
+      tampilkanToast("Blokir dibuka. Konten & topik serupa kembali tampil.");
+    }
+  }
+
+  // Modal Kelola Konten Diblokir
+  function bukaModalBlokir() {
+    const lama = document.getElementById("mtx-modal-blokir");
+    if (lama) lama.remove();
+
+    const profilSaya = getProfilSaya();
+    const blkPosts = Array.isArray(profilSaya?.blockedPosts) ? profilSaya.blockedPosts : [];
+    const blkKeywords = Array.isArray(profilSaya?.blockedKeywords) ? profilSaya.blockedKeywords : [];
+
+    // Kelompokkan berdasarkan sourcePostId agar membuka 1 video otomatis membuka semua keyword terkait
+    const daftarGrup = [];
+    const sudahPostId = new Set();
+
+    blkPosts.forEach((pid) => {
+      sudahPostId.add(pid);
+      const postAsli = daftarPostCache.find((p) => p.id === pid);
+      const kwTerkait = blkKeywords
+        .filter((k) => (typeof k === "object" && k.sourcePostId === pid))
+        .map((k) => k.keyword);
+      const judul = postAsli
+        ? (postAsli.teks || postAsli.file || "Postingan")
+        : ((blkKeywords.find((k) => k.sourcePostId === pid)?.sourceTitle) || `Postingan (${pid.slice(0, 6)})`);
+
+      daftarGrup.push({ postId: pid, title: judul, keywords: kwTerkait });
+    });
+
+    blkKeywords.forEach((k) => {
+      if (typeof k === "object" && k.sourcePostId && !sudahPostId.has(k.sourcePostId)) {
+        sudahPostId.add(k.sourcePostId);
+        daftarGrup.push({
+          postId: k.sourcePostId,
+          title: k.sourceTitle || k.keyword,
+          keywords: [k.keyword]
+        });
+      }
+    });
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "mtx-modal-blokir";
+    backdrop.className = "mtx-modal-backdrop";
+    backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+    const isiList = daftarGrup.length === 0
+      ? `<p style="font-size:13px;color:#3d6e8c;text-align:center;padding:16px 0;">Tidak ada video atau topik yang sedang diblokir.</p>`
+      : daftarGrup.map((g, idx) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,255,255,0.88);border:1px solid #bce3fa;border-radius:12px;padding:10px 12px;margin-bottom:8px;">
+            <div style="min-width:0;">
+              <div style="font-size:13px;font-weight:700;color:#083d63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(g.title)}</div>
+              <div style="font-size:11px;color:#4a7c9b;">Kata kunci serupa: ${g.keywords.length ? esc(g.keywords.join(", ")) : "Hanya item ini"}</div>
+            </div>
+            <button type="button" data-unblock-idx="${idx}" class="win7-btn win7-btn-primary" style="white-space:nowrap;">Buka Blokir</button>
+          </div>
+        `).join("");
+
+    backdrop.innerHTML = `
+      <div class="mtx-modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h3 style="margin:0;font-size:16px;">Konten & Topik Serupa Diblokir (${daftarGrup.length})</h3>
+          <button type="button" id="mtx-close-blokir" class="win7-btn">Tutup</button>
+        </div>
+        <p style="font-size:12px;color:#2b678a;margin:0 0 12px;">
+          Membuka blokir pada salah satu video akan otomatis membuka blokir untuk konten serupa pada topik tersebut.
+        </p>
+        <div>${isiList}</div>
+        ${daftarGrup.length > 0 ? `<button type="button" id="mtx-unblock-all" class="win7-btn" style="width:100%;margin-top:6px;">Buka Semua Blokir</button>` : ""}
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+    document.getElementById("mtx-close-blokir").onclick = () => backdrop.remove();
+
+    backdrop.querySelectorAll("[data-unblock-idx]").forEach((btn) => {
+      btn.onclick = async () => {
+        const g = daftarGrup[Number(btn.getAttribute("data-unblock-idx"))];
+        backdrop.remove();
+        if (g) await bukaBlokirVideo(g.postId, g.keywords);
+      };
+    });
+
+    const btnAll = document.getElementById("mtx-unblock-all");
+    if (btnAll) {
+      btnAll.onclick = async () => {
+        backdrop.remove();
+        if (await kirimAksiApi("/api/block", { action: "unblock_all" })) {
+          await segarkanSosial(true);
+          tampilkanToast("Semua blokir konten telah dibuka.");
+        }
+      };
+    }
+  }
+
+  // Bar Algoritma & Kelola Blokir di atas Feed
+  function pasangBarAlgoritmaFeed() {
+    const feedEl = document.getElementById("view-feed");
+    if (!feedEl || !userAktif) return;
+
+    let bar = document.getElementById("mtx-algo-bar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "mtx-algo-bar";
+      bar.className = "mtx-algo-bar";
+      feedEl.insertBefore(bar, feedEl.firstChild);
+    } else if (feedEl.firstChild !== bar) {
+      feedEl.insertBefore(bar, feedEl.firstChild);
+    }
+
+    const profilSaya = getProfilSaya();
+    const jmlBlokir = Array.isArray(profilSaya?.blockedPosts) ? profilSaya.blockedPosts.length : 0;
+
+    const modes = [
+      { id: "algoritma", label: "Untuk Kamu" },
+      { id: "mengikuti", label: "Mengikuti" },
+      { id: "terbaru",   label: "Terbaru" }
+    ];
+
+    bar.innerHTML = `
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+        ${modes.map((m) => `
+          <button type="button" data-feed-mode="${m.id}" class="mtx-chip-btn ${modeFeed === m.id ? "active" : ""}">${m.label}</button>
+        `).join("")}
+      </div>
+      <button type="button" id="mtx-open-blokir" class="mtx-chip-btn">Diblokir (${jmlBlokir})</button>
+    `;
+
+    bar.querySelectorAll("[data-feed-mode]").forEach((btn) => {
+      btn.onclick = () => {
+        modeFeed = btn.getAttribute("data-feed-mode");
+        localStorage.setItem("mtx_feed_mode", modeFeed);
+        pasangBarAlgoritmaFeed();
+        if (typeof renderSemuaTab === "function") renderSemuaTab();
+      };
+    });
+
+    document.getElementById("mtx-open-blokir").onclick = bukaModalBlokir;
+  }
+
+  // Modal Spotlight untuk Postingan dari Notifikasi / Link Share
+  function bukaModalPost(postId) {
+    const post = daftarPostCache.find((p) => p.id === postId);
+    if (!post) {
+      tampilkanToast("Postingan ini sudah kedaluwarsa (lewat 24 jam) atau dihapus.");
+      return;
+    }
+
+    catatSinyalAlgoritma(post, 4);
+    const lama = document.getElementById("mtx-modal-post");
+    if (lama) lama.remove();
+
+    const myEmail = userAktif.email.toLowerCase();
+    const profilSaya = getProfilSaya();
+    const daftarSaved = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
+    const serverUrl = getServerUrl();
+
+    const chData = daftarChannelCache.find((c) => c.email === (post.email || "").toLowerCase());
+    const chNama = chData ? chData.nama : (post.channelNama || post.penulis);
+    const chFoto = chData ? chData.foto : (post.channelFoto || "");
+    const likes = Array.isArray(post.likes) ? post.likes : [];
+    const sudahLike = likes.includes(myEmail);
+    const sudahSave = daftarSaved.includes(post.id);
+
+    const mediaUrl = post.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(post.file)}` : "";
+    const mediaHtml = post.jenisMedia === "video" && mediaUrl
+      ? `<video src="${mediaUrl}" controls autoplay style="width:100%;max-height:320px;border-radius:12px;background:#000;margin-top:8px;"></video>`
+      : (post.jenisMedia === "image" && mediaUrl
+        ? `<img src="${mediaUrl}" style="width:100%;max-height:360px;object-fit:contain;border-radius:12px;margin-top:8px;">`
+        : "");
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "mtx-modal-post";
+    backdrop.className = "mtx-modal-backdrop";
+    backdrop.onclick = (e) => { if (e.target === backdrop) backdrop.remove(); };
+
+    backdrop.innerHTML = `
+      <div class="mtx-modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div class="mtx-creator-info" id="mtx-spot-creator">
+            <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
+            <div>
+              <div style="font-size:13px;font-weight:800;">${esc(chNama)}</div>
+              <div style="font-size:11px;color:#3d6e8c;">${formatWaktuSingkat(post.dibuatPada)}</div>
+            </div>
+          </div>
+          <button type="button" id="mtx-close-spot" class="win7-btn">Tutup</button>
+        </div>
+        <div style="font-size:13.5px;line-height:1.45;">${esc(post.teks || "")}</div>
+        ${mediaHtml}
+        <div class="mtx-social-bar" style="margin-top:10px;">
+          <button type="button" id="mtx-spot-like" class="mtx-act-btn ${sudahLike ? "liked" : ""}">${sudahLike ? "♥" : "♡"} Suka (${likes.length})</button>
+          <button type="button" id="mtx-spot-save" class="mtx-act-btn ${sudahSave ? "saved" : ""}">${sudahSave ? "Tersimpan" : "Simpan"}</button>
+          <button type="button" id="mtx-spot-share" class="mtx-act-btn">Bagikan</button>
+        </div>
+        <div id="mtx-spot-comments"></div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+    document.getElementById("mtx-close-spot").onclick = () => backdrop.remove();
+    document.getElementById("mtx-spot-creator").onclick = () => {
+      backdrop.remove();
+      if (post.email) {
+        channelSedangDilihat = post.email.toLowerCase();
+        bukaTabKhusus("channel");
+      }
+    };
+    document.getElementById("mtx-spot-like").onclick = async () => {
+      catatSinyalAlgoritma(post, 8);
+      if (await kirimAksiApi("/api/like", { id: post.id })) {
+        await segarkanSosial(false);
+        bukaModalPost(post.id);
+      }
+    };
+    document.getElementById("mtx-spot-save").onclick = async () => {
+      catatSinyalAlgoritma(post, 10);
+      if (await kirimAksiApi("/api/save", { id: post.id })) {
+        await segarkanSosial(false);
+        bukaModalPost(post.id);
+      }
+    };
+    document.getElementById("mtx-spot-share").onclick = () => bagikanPostingan(post);
+
+    const komenSlot = document.getElementById("mtx-spot-comments");
+    komenSlot.appendChild(buatDrawerKomentar(post, false, () => bukaModalPost(post.id)));
+  }
+
+  function cekBukaSharedPost() {
+    if (sharedPostHandled || !userAktif || !daftarPostCache.length) return;
+    const sharedId = getSharedPostParam();
+    if (!sharedId) return;
+    sharedPostHandled = true;
+    bukaModalPost(sharedId);
   }
 
   function cariPostUntukElemen(el, filterTipe) {
@@ -902,7 +1309,8 @@
     return ketemu || null;
   }
 
-  function buatDrawerKomentar(post, isShortsOverlay) {
+  // Komponen Kotak Komentar + Fitur Balas (Reply)
+  function buatDrawerKomentar(post, isShortsOverlay, onAfterSubmit) {
     const comments = Array.isArray(post.comments) ? post.comments : [];
     const box = document.createElement("div");
     box.className = isShortsOverlay ? "mtx-shorts-drawer" : "mtx-comment-box";
@@ -917,26 +1325,43 @@
 
     const listKomenHtml = comments.length === 0
       ? `<div style="font-size:11.5px;color:#5c7a89;margin-bottom:6px;">Belum ada komentar.</div>`
-      : comments.map((c) => {
+      : comments.map((c, idx) => {
           const cProf = daftarChannelCache.find((u) => u.email === (c.email || "").toLowerCase());
           const cNama = cProf ? cProf.nama : c.nama;
           const cFoto = cProf ? cProf.foto : c.foto;
+          const replyTag = c.replyToNama
+            ? `<span style="font-size:10.5px;color:#0077b6;font-weight:700;">↳ membalas @${esc(c.replyToNama)}</span><br>`
+            : "";
           return `
-            <div class="mtx-comment-item">
+            <div class="mtx-comment-item ${c.replyToNama ? "is-reply" : ""}">
               <img src="${resolveAvatarUrl(cFoto, cNama)}" data-fallback-nama="${esc(cNama)}">
-              <div>
-                <strong style="color:#083d63;">${esc(cNama)}</strong><br>
-                <span style="color:#1b3b4d;">${esc(c.teks)}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                  <strong style="color:#083d63;">${esc(cNama)}</strong>
+                  <span style="font-size:10px;color:#62859c;">${formatWaktuSingkat(c.waktu)}</span>
+                </div>
+                ${replyTag}
+                <span style="color:#1b3b4d;word-break:break-word;">${esc(c.teks)}</span><br>
+                <button type="button" data-reply-idx="${idx}" class="mtx-reply-link">Balas</button>
               </div>
             </div>
           `;
         }).join("");
 
+    const activeReply = targetBalasKomen[post.id];
+    const replyBannerHtml = activeReply
+      ? `<div class="mtx-reply-banner">
+           <span>Membalas <strong>@${esc(activeReply.nama)}</strong></span>
+           <button type="button" class="mtx-cancel-reply" style="border:none;background:none;color:#c9184a;font-weight:800;cursor:pointer;">Batal</button>
+         </div>`
+      : "";
+
     box.innerHTML = `
       ${headerHtml}
-      <div style="max-height:140px;overflow-y:auto;margin-bottom:6px;">${listKomenHtml}</div>
+      <div style="max-height:150px;overflow-y:auto;margin-bottom:6px;">${listKomenHtml}</div>
+      ${replyBannerHtml}
       <div style="display:flex;gap:6px;">
-        <input type="text" class="aero-input mtx-input-komen" placeholder="Tulis komentar..." maxlength="280" style="margin:0;padding:6px 10px;font-size:12px;">
+        <input type="text" class="aero-input mtx-input-komen" placeholder="${activeReply ? `Balas @${esc(activeReply.nama)}...` : "Tulis komentar..."}" maxlength="280" style="margin:0;padding:6px 10px;font-size:12px;">
         <button type="button" class="win7-btn win7-btn-primary mtx-send-komen" style="padding:5px 12px;font-size:12px;">Kirim</button>
       </div>
     `;
@@ -954,13 +1379,67 @@
     inp.oninput = () => { drafKomen[post.id] = inp.value; };
     inp.onclick = (e) => e.stopPropagation();
 
+    box.querySelectorAll("[data-reply-idx]").forEach((btnR) => {
+      btnR.onclick = (e) => {
+        e.stopPropagation();
+        const cObj = comments[Number(btnR.getAttribute("data-reply-idx"))];
+        if (!cObj) return;
+        const cProf = daftarChannelCache.find((u) => u.email === (cObj.email || "").toLowerCase());
+        targetBalasKomen[post.id] = {
+          parentId: cObj.id || "",
+          email: (cObj.email || "").toLowerCase(),
+          nama: cProf ? cProf.nama : cObj.nama
+        };
+        if (typeof onAfterSubmit === "function") {
+          onAfterSubmit();
+        } else {
+          pasangKontrolSemua(true);
+          updatePemutarUtamaSocial(true);
+          if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
+        }
+        setTimeout(() => {
+          const baruInp = document.querySelector(".mtx-input-komen");
+          if (baruInp) baruInp.focus();
+        }, 40);
+      };
+    });
+
+    const btnCancelReply = box.querySelector(".mtx-cancel-reply");
+    if (btnCancelReply) {
+      btnCancelReply.onclick = (e) => {
+        e.stopPropagation();
+        delete targetBalasKomen[post.id];
+        if (typeof onAfterSubmit === "function") {
+          onAfterSubmit();
+        } else {
+          pasangKontrolSemua(true);
+          updatePemutarUtamaSocial(true);
+          if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
+        }
+      };
+    }
+
     const kirimHandler = async (e) => {
       if (e) e.stopPropagation();
       const isi = inp.value.trim();
       if (!isi) return;
+
+      const rep = targetBalasKomen[post.id] || {};
       drafKomen[post.id] = "";
-      if (await kirimAksiApi("/api/comment", { id: post.id, teks: isi })) {
-        await segarkanSosial();
+      delete targetBalasKomen[post.id];
+      catatSinyalAlgoritma(post, 10);
+
+      const ok = await kirimAksiApi("/api/comment", {
+        id: post.id,
+        teks: isi,
+        replyToEmail: rep.email || "",
+        replyToNama: rep.nama || "",
+        parentId: rep.parentId || ""
+      });
+
+      if (ok) {
+        await segarkanSosial(false);
+        if (typeof onAfterSubmit === "function") onAfterSubmit();
       }
     };
 
@@ -972,7 +1451,7 @@
     return box;
   }
 
-  // 7A. Pasang kontrol standar pada Feed & Grid Video
+  // 7A. Pasang Kontrol pada Kartu Feed & Grid Video
   function pasangKartuStandar(containerId, filterTipe, paksaUpdate) {
     const container = document.getElementById(containerId);
     if (!container || !userAktif || !daftarPostCache.length) return;
@@ -982,6 +1461,8 @@
     const daftarSaved = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
 
     Array.from(container.children).forEach((kartu) => {
+      if (kartu.id === "mtx-algo-bar") return;
+
       const lamaWrap = kartu.querySelector(".mtx-social-wrap");
       if (lamaWrap && !paksaUpdate) return;
 
@@ -1026,8 +1507,9 @@
         btnFollow.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
         btnFollow.onclick = async (e) => {
           e.stopPropagation();
+          catatSinyalAlgoritma(post, 15);
           if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
-            await segarkanSosial();
+            await segarkanSosial(false);
           }
         };
         topBar.appendChild(btnFollow);
@@ -1051,8 +1533,9 @@
       btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
       btnLike.onclick = async (e) => {
         e.stopPropagation();
+        if (!sudahLike) catatSinyalAlgoritma(post, 8);
         if (await kirimAksiApi("/api/like", { id: post.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       bar.appendChild(btnLike);
@@ -1072,17 +1555,39 @@
       };
       bar.appendChild(btnKomen);
 
+      const btnShare = document.createElement("button");
+      btnShare.type = "button";
+      btnShare.className = "mtx-act-btn";
+      btnShare.textContent = "Bagikan";
+      btnShare.onclick = (e) => {
+        e.stopPropagation();
+        catatSinyalAlgoritma(post, 6);
+        bagikanPostingan(post);
+      };
+      bar.appendChild(btnShare);
+
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
       btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan";
       btnSave.onclick = async (e) => {
         e.stopPropagation();
+        if (!sudahSave) catatSinyalAlgoritma(post, 10);
         if (await kirimAksiApi("/api/save", { id: post.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       bar.appendChild(btnSave);
+
+      const btnBlock = document.createElement("button");
+      btnBlock.type = "button";
+      btnBlock.className = "mtx-act-btn block-btn";
+      btnBlock.textContent = "Blokir Serupa";
+      btnBlock.onclick = (e) => {
+        e.stopPropagation();
+        blokirKontenSerupa(post);
+      };
+      bar.appendChild(btnBlock);
 
       if (isAdmin()) {
         const btnHapus = document.createElement("button");
@@ -1107,7 +1612,7 @@
     });
   }
 
-  // 7B. Pasang Floating Dock khusus Shorts
+  // 7B. Floating Dock Shorts
   function pasangKartuShorts(paksaUpdate) {
     const wadah = document.getElementById("wadahShorts");
     if (!wadah || !userAktif || !daftarPostCache.length) return;
@@ -1165,8 +1670,9 @@
         badge.textContent = sudahFollow ? "✓" : "+";
         badge.onclick = async (e) => {
           e.stopPropagation();
+          catatSinyalAlgoritma(post, 15);
           if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
-            await segarkanSosial();
+            await segarkanSosial(false);
           }
         };
         avWrap.appendChild(badge);
@@ -1179,8 +1685,9 @@
       btnLike.innerHTML = `${sudahLike ? "♥" : "♡"}<span>${likes.length}</span>`;
       btnLike.onclick = async (e) => {
         e.stopPropagation();
+        if (!sudahLike) catatSinyalAlgoritma(post, 8);
         if (await kirimAksiApi("/api/like", { id: post.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       dock.appendChild(btnLike);
@@ -1200,6 +1707,16 @@
       };
       dock.appendChild(btnKomen);
 
+      const btnShare = document.createElement("button");
+      btnShare.type = "button";
+      btnShare.className = "mtx-short-pill-btn";
+      btnShare.innerHTML = `<span>Bagikan</span>`;
+      btnShare.onclick = (e) => {
+        e.stopPropagation();
+        bagikanPostingan(post);
+      };
+      dock.appendChild(btnShare);
+
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "mtx-short-pill-btn" + (sudahSave ? " saved" : "");
@@ -1207,10 +1724,20 @@
       btnSave.onclick = async (e) => {
         e.stopPropagation();
         if (await kirimAksiApi("/api/save", { id: post.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       dock.appendChild(btnSave);
+
+      const btnBlock = document.createElement("button");
+      btnBlock.type = "button";
+      btnBlock.className = "mtx-short-pill-btn";
+      btnBlock.innerHTML = `<span>Blokir</span>`;
+      btnBlock.onclick = (e) => {
+        e.stopPropagation();
+        blokirKontenSerupa(post);
+      };
+      dock.appendChild(btnBlock);
 
       if (isAdmin()) {
         const btnDel = document.createElement("button");
@@ -1270,6 +1797,9 @@
     }
 
     if (wadah && !paksaUpdate && lastPlayerPostId === post.id) return;
+    if (lastPlayerPostId !== post.id) {
+      catatSinyalAlgoritma(post, 5); // Sinyal tontonan video untuk algoritma
+    }
     lastPlayerPostId = post.id;
 
     if (!wadah) {
@@ -1317,8 +1847,9 @@
       btnFollow.style.fontSize = "12px";
       btnFollow.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti Channel";
       btnFollow.onclick = async () => {
+        catatSinyalAlgoritma(post, 15);
         if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       topBar.appendChild(btnFollow);
@@ -1338,22 +1869,42 @@
     btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
     btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
     btnLike.onclick = async () => {
+      if (!sudahLike) catatSinyalAlgoritma(post, 8);
       if (await kirimAksiApi("/api/like", { id: post.id })) {
-        await segarkanSosial();
+        await segarkanSosial(false);
       }
     };
     bar.appendChild(btnLike);
+
+    const btnShare = document.createElement("button");
+    btnShare.type = "button";
+    btnShare.className = "mtx-act-btn";
+    btnShare.textContent = "Bagikan";
+    btnShare.onclick = () => bagikanPostingan(post);
+    bar.appendChild(btnShare);
 
     const btnSave = document.createElement("button");
     btnSave.type = "button";
     btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
     btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan Video";
     btnSave.onclick = async () => {
+      if (!sudahSave) catatSinyalAlgoritma(post, 10);
       if (await kirimAksiApi("/api/save", { id: post.id })) {
-        await segarkanSosial();
+        await segarkanSosial(false);
       }
     };
     bar.appendChild(btnSave);
+
+    const btnBlock = document.createElement("button");
+    btnBlock.type = "button";
+    btnBlock.className = "mtx-act-btn block-btn";
+    btnBlock.textContent = "Blokir Serupa";
+    btnBlock.onclick = () => {
+      box.classList.add("hidden");
+      vid.pause();
+      blokirKontenSerupa(post);
+    };
+    bar.appendChild(btnBlock);
 
     if (isAdmin()) {
       const btnHapus = document.createElement("button");
@@ -1391,12 +1942,94 @@
 
   setInterval(() => {
     if (!sedangSibukInteraksi()) {
+      pasangBarAlgoritmaFeed();
       pasangKontrolSemua(false);
       updatePemutarUtamaSocial(false);
     }
   }, 1500);
 
-  // 8. Halaman Pencarian Terpadu (Video, Shorts, Foto, Teks, Channel)
+  // 8. Halaman Notifikasi
+  function renderHalamanNotifikasi() {
+    const wadah = document.getElementById("view-notif");
+    if (!wadah || !userAktif) return;
+
+    const profilSaya = getProfilSaya();
+    const notifs = Array.isArray(profilSaya?.notifications) ? profilSaya.notifications : [];
+    const unreadCount = notifs.filter((n) => !n.dibaca).length;
+
+    const labelTipe = {
+      follow: "mulai mengikuti channel kamu.",
+      like: "menyukai postingan kamu:",
+      comment: "mengomentari postingan kamu:",
+      reply: "membalas komentar kamu:",
+      new_post: "mengunggah konten baru:"
+    };
+
+    const listHtml = notifs.length === 0
+      ? `<div class="mtx-channel-banner" style="text-align:center;">Belum ada notifikasi. Aktivitas pengikut, suka, komentar, dan balasan akan muncul di sini.</div>`
+      : notifs.map((n, idx) => {
+          const dariCh = daftarChannelCache.find((c) => c.email === (n.dariEmail || "").toLowerCase());
+          const namaPengirim = dariCh ? dariCh.nama : (n.dariNama || "Pengguna");
+          const fotoPengirim = dariCh ? dariCh.foto : (n.dariFoto || "");
+          const ket = labelTipe[n.tipe] || "berinteraksi dengan kamu:";
+          const isiPreview = n.tipe === "follow" ? "" : `<div style="font-size:12px;color:#2b678a;margin-top:2px;">"${esc(n.teks || "")}"</div>`;
+
+          return `
+            <div data-notif-idx="${idx}" class="mtx-notif-item ${n.dibaca ? "" : "unread"}">
+              <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+                <img src="${resolveAvatarUrl(fotoPengirim, namaPengirim)}" data-fallback-nama="${esc(namaPengirim)}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:1.5px solid #fff;flex-shrink:0;">
+                <div style="min-width:0;">
+                  <div style="font-size:13px;line-height:1.35;">
+                    <strong>${esc(namaPengirim)}</strong> ${ket}
+                  </div>
+                  ${isiPreview}
+                  <div style="font-size:11px;color:#5c7a89;margin-top:3px;">${formatWaktuSingkat(n.waktu)}</div>
+                </div>
+              </div>
+              ${n.dibaca ? "" : `<span class="mtx-notif-dot" title="Belum dibaca"></span>`}
+            </div>
+          `;
+        }).join("");
+
+    wadah.innerHTML = `
+      <div class="mtx-channel-banner" style="padding:14px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;">
+        <div>
+          <h3 style="margin:0;font-size:16px;">Pusat Notifikasi</h3>
+          <div style="font-size:12px;color:#3d6e8c;">${unreadCount > 0 ? `${unreadCount} notifikasi baru belum dibaca` : "Semua notifikasi sudah dibaca"}</div>
+        </div>
+        ${unreadCount > 0 ? `<button type="button" id="mtx-notif-read-all" class="win7-btn win7-btn-primary">Tandai Semua Dibaca</button>` : ""}
+      </div>
+      <div>${listHtml}</div>
+    `;
+
+    const btnReadAll = document.getElementById("mtx-notif-read-all");
+    if (btnReadAll) {
+      btnReadAll.onclick = async () => {
+        if (await kirimAksiApi("/api/notif/read", { all: true })) {
+          await muatDataChannel();
+        }
+      };
+    }
+
+    wadah.querySelectorAll("[data-notif-idx]").forEach((el) => {
+      el.onclick = async () => {
+        const n = notifs[Number(el.getAttribute("data-notif-idx"))];
+        if (!n) return;
+        if (!n.dibaca && n.id) {
+          await kirimAksiApi("/api/notif/read", { id: n.id });
+          muatDataChannel();
+        }
+        if (n.tipe === "follow" && n.dariEmail) {
+          channelSedangDilihat = n.dariEmail.toLowerCase();
+          bukaTabKhusus("channel");
+        } else if (n.postId) {
+          bukaModalPost(n.postId);
+        }
+      };
+    });
+  }
+
+  // 9. Halaman Pencarian Terpadu
   function renderHalamanCari(hanyaHasil) {
     const wadah = document.getElementById("view-search");
     if (!wadah || !userAktif) return;
@@ -1424,6 +2057,7 @@
               `).join("")}
             </div>
             <select id="mtx-search-sort" class="mtx-sort-select" title="Urutkan hasil">
+              <option value="algoritma" ${urutCari === "algoritma" ? "selected" : ""}>Relevan (Algoritma)</option>
               <option value="terbaru" ${urutCari === "terbaru" ? "selected" : ""}>Terbaru</option>
               <option value="populer" ${urutCari === "populer" ? "selected" : ""}>Terpopuler</option>
             </select>
@@ -1477,7 +2111,6 @@
     const serverUrl = getServerUrl();
     const q = kataKunciCari.trim().toLowerCase();
 
-    // Filter Channel
     const channelCocok = daftarChannelCache.filter((c) => {
       if (!q) return true;
       return (c.nama || "").toLowerCase().includes(q) ||
@@ -1485,8 +2118,9 @@
              (c.bio || "").toLowerCase().includes(q);
     });
 
-    // Filter Postingan (Video, Shorts, Foto, Teks)
     let postCocok = daftarPostCache.filter((p) => {
+      if (cekPostDiblokir(p, profilSaya)) return false;
+
       const tipe = (p.tipe || "feed").toLowerCase();
       const media = (p.jenisMedia || "none").toLowerCase();
 
@@ -1508,33 +2142,32 @@
       return gabungan.includes(q);
     });
 
-    // Pengurutan
     if (urutCari === "populer") {
       postCocok = [...postCocok].sort((a, b) => {
         const skorA = (a.likes?.length || 0) * 2 + (a.comments?.length || 0);
         const skorB = (b.likes?.length || 0) * 2 + (b.comments?.length || 0);
         return skorB - skorA;
       });
-    } else {
+    } else if (urutCari === "terbaru") {
       postCocok = [...postCocok].sort((a, b) => (b.dibuatPada || 0) - (a.dibuatPada || 0));
+    } else {
+      postCocok = [...postCocok].sort((a, b) => hitungSkorAlgoritma(b) - hitungSkorAlgoritma(a));
     }
 
     hasilBox.innerHTML = "";
 
-    // Info ringkas status pencarian
     const infoBar = document.createElement("div");
     infoBar.style.cssText = "font-size:12px;font-weight:700;color:#ffffff;text-shadow:0 1px 3px rgba(0,40,80,0.45);margin-bottom:10px;padding:0 4px;";
     if (!q) {
       infoBar.textContent = filterCari === "channel"
         ? `Semua Channel Aktif (${channelCocok.length})`
-        : `Jelajah Konten (${postCocok.length} tersedia)`;
+        : `Jelajah Rekomendasi (${postCocok.length} tersedia)`;
     } else {
       const total = filterCari === "channel" ? channelCocok.length : postCocok.length + (filterCari === "semua" ? channelCocok.length : 0);
       infoBar.textContent = `Ditemukan ${total} hasil untuk "${kataKunciCari.trim()}"`;
     }
     hasilBox.appendChild(infoBar);
 
-    // Bagian Channel (tampil jika filter 'semua' atau 'channel')
     if ((filterCari === "semua" || filterCari === "channel") && channelCocok.length > 0) {
       const listChTampil = filterCari === "channel" ? channelCocok : channelCocok.slice(0, 6);
       const gridCh = document.createElement("div");
@@ -1570,7 +2203,7 @@
           btnF.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
           btnF.onclick = async () => {
             if (await kirimAksiApi("/api/follow", { targetEmail: ch.email })) {
-              await segarkanSosial();
+              await segarkanSosial(false);
             }
           };
           card.appendChild(btnF);
@@ -1587,7 +2220,6 @@
       return;
     }
 
-    // Jika tidak ada postingan cocok
     if (postCocok.length === 0) {
       const kosong = document.createElement("div");
       kosong.className = "mtx-channel-banner";
@@ -1599,7 +2231,6 @@
       return;
     }
 
-    // Render Kartu Hasil Postingan
     postCocok.forEach((p) => {
       const chData = daftarChannelCache.find((c) => c.email === (p.email || "").toLowerCase());
       const chNama = chData ? chData.nama : (p.channelNama || p.penulis);
@@ -1621,7 +2252,6 @@
       card.className = "mtx-channel-banner";
       card.style.padding = "14px";
 
-      // Header Kreator + Badge Tipe
       const topBar = document.createElement("div");
       topBar.className = "mtx-creator-bar";
       topBar.innerHTML = `
@@ -1650,14 +2280,13 @@
         btnF.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
         btnF.onclick = async () => {
           if (await kirimAksiApi("/api/follow", { targetEmail: p.email })) {
-            await segarkanSosial();
+            await segarkanSosial(false);
           }
         };
         topBar.lastElementChild.appendChild(btnF);
       }
       card.appendChild(topBar);
 
-      // Teks Caption dengan Highlight
       if (p.teks) {
         const captionEl = document.createElement("div");
         captionEl.style.cssText = "font-size:13.5px;line-height:1.45;margin:6px 0;color:#093b5c;";
@@ -1665,7 +2294,6 @@
         card.appendChild(captionEl);
       }
 
-      // Preview Media
       const mediaUrl = p.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(p.file)}` : "";
       if (p.jenisMedia === "video" && mediaUrl) {
         const vid = document.createElement("video");
@@ -1681,7 +2309,6 @@
         card.appendChild(img);
       }
 
-      // Tombol Interaksi
       const bar = document.createElement("div");
       bar.className = "mtx-social-bar";
 
@@ -1690,8 +2317,9 @@
       btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
       btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
       btnLike.onclick = async () => {
+        if (!sudahLike) catatSinyalAlgoritma(p, 8);
         if (await kirimAksiApi("/api/like", { id: p.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       bar.appendChild(btnLike);
@@ -1710,23 +2338,36 @@
       };
       bar.appendChild(btnKomen);
 
+      const btnShare = document.createElement("button");
+      btnShare.type = "button";
+      btnShare.className = "mtx-act-btn";
+      btnShare.textContent = "Bagikan";
+      btnShare.onclick = () => bagikanPostingan(p);
+      bar.appendChild(btnShare);
+
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
       btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan";
       btnSave.onclick = async () => {
         if (await kirimAksiApi("/api/save", { id: p.id })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
       bar.appendChild(btnSave);
 
-      // Tombol Buka di Pemutar Utama / Shorts
+      const btnBlock = document.createElement("button");
+      btnBlock.type = "button";
+      btnBlock.className = "mtx-act-btn block-btn";
+      btnBlock.textContent = "Blokir Serupa";
+      btnBlock.onclick = () => blokirKontenSerupa(p);
+      bar.appendChild(btnBlock);
+
       if (p.tipe === "video" && mediaUrl) {
         const btnBukaVid = document.createElement("button");
         btnBukaVid.type = "button";
         btnBukaVid.className = "mtx-act-btn";
-        btnBukaVid.textContent = "Buka Pemutar Utama";
+        btnBukaVid.textContent = "Pemutar Utama";
         btnBukaVid.onclick = () => {
           document.getElementById("tab-video")?.click();
           setTimeout(() => {
@@ -1746,15 +2387,6 @@
           }, 90);
         };
         bar.appendChild(btnBukaVid);
-      } else if (p.tipe === "short") {
-        const btnBukaShort = document.createElement("button");
-        btnBukaShort.type = "button";
-        btnBukaShort.className = "mtx-act-btn";
-        btnBukaShort.textContent = "Buka di Shorts";
-        btnBukaShort.onclick = () => {
-          document.getElementById("tab-short")?.click();
-        };
-        bar.appendChild(btnBukaShort);
       }
 
       if (isAdmin()) {
@@ -1765,7 +2397,7 @@
         btnDel.onclick = async () => {
           if (!confirm(`Hapus permanen postingan dari ${chNama}?`)) return;
           if (await kirimAksiApi("/api/delete", { id: p.id })) {
-            await segarkanSosial();
+            await segarkanSosial(true);
           }
         };
         bar.appendChild(btnDel);
@@ -1781,7 +2413,7 @@
     });
   }
 
-  // 9. Halaman Channel & Edit Profil
+  // 10. Halaman Channel & Edit Profil
   function renderHalamanChannel(targetEmail) {
     const wadah = document.getElementById("view-channel");
     if (!wadah || !userAktif) return;
@@ -1806,7 +2438,10 @@
     const serverUrl = getServerUrl();
 
     const tombolAksiHeader = adalahMilikku
-      ? `<button type="button" id="mtx-btn-edit-profil" class="win7-btn win7-btn-primary">Edit Channel</button>`
+      ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">
+           <button type="button" id="mtx-btn-edit-profil" class="win7-btn win7-btn-primary">Edit Channel</button>
+           <button type="button" id="mtx-ch-open-blokir" class="win7-btn">Konten Diblokir</button>
+         </div>`
       : `<button type="button" id="mtx-btn-follow-ch" class="mtx-btn-follow ${sudahFollow ? "following" : ""}" style="padding:6px 14px;font-size:12.5px;">${sudahFollow ? "Mengikuti" : "+ Ikuti Channel"}</button>`;
 
     const kartuPostHtml = postinganCh.length === 0
@@ -1871,10 +2506,11 @@
         document.getElementById("mtx-form-edit-profil").style.display = "none";
       };
       document.getElementById("mtx-simpan-profil").onclick = simpanEditProfil;
+      document.getElementById("mtx-ch-open-blokir").onclick = bukaModalBlokir;
     } else {
       document.getElementById("mtx-btn-follow-ch").onclick = async () => {
         if (await kirimAksiApi("/api/follow", { targetEmail: emailCh })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
     }
@@ -1938,7 +2574,7 @@
       if (!res.ok) {
         alert("Gagal menyimpan profil: " + (await res.text()));
       } else {
-        await segarkanSosial();
+        await segarkanSosial(false);
       }
     } catch (e) {
       alert("Error koneksi: " + e.message);
@@ -1948,7 +2584,7 @@
     }
   }
 
-  // 10. Halaman Postingan Disimpan
+  // 11. Halaman Postingan Disimpan
   function renderHalamanDisimpan() {
     const wadah = document.getElementById("view-saved");
     if (!wadah || !userAktif) return;
@@ -1985,7 +2621,7 @@
     wadah.querySelectorAll("[data-unsave-id]").forEach((btn) => {
       btn.onclick = async () => {
         if (await kirimAksiApi("/api/save", { id: btn.getAttribute("data-unsave-id") })) {
-          await segarkanSosial();
+          await segarkanSosial(false);
         }
       };
     });
