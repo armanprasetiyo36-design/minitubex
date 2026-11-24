@@ -23,6 +23,11 @@
   const komenTerbuka = new Set();
   const drafKomen = {};
 
+  // State Pencarian
+  let kataKunciCari = "";
+  let filterCari = "semua"; // semua | video | short | foto | teks | channel
+  let urutCari = "terbaru";  // terbaru | populer
+
   function getServerUrl() {
     const params = new URLSearchParams(window.location.search);
     return params.get("server") || "";
@@ -34,6 +39,17 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
+  }
+
+  function highlightTeks(teks, query) {
+    const raw = String(teks || "");
+    const q = String(query || "").trim();
+    if (!q) return esc(raw);
+    const escapedQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(`(${escapedQ})`, "gi");
+    return raw.split(regex).map((part, idx) =>
+      idx % 2 === 1 ? `<mark class="mtx-hl">${esc(part)}</mark>` : esc(part)
+    ).join("");
   }
 
   function decodeSafe(str) {
@@ -48,7 +64,15 @@
     return String(str || "").replace(/\s+/g, " ").trim();
   }
 
-  // Avatar SVG di-encode penuh agar tidak pernah merusak atribut <img src="...">
+  function formatWaktuSingkat(unixSec) {
+    if (!unixSec) return "";
+    const diff = Math.max(0, Math.floor(Date.now() / 1000) - Number(unixSec));
+    if (diff < 60) return "Baru saja";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m lalu`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}j lalu`;
+    return `${Math.floor(diff / 86400)}h lalu`;
+  }
+
   function buatSvgAvatar(nama) {
     const teksInisial = (nama || "U").replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "U";
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#48cae4"/><stop offset="100%" stop-color="#0077b6"/></linearGradient></defs><rect width="80" height="80" rx="40" fill="url(#g)"/><text x="40" y="43" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-weight="bold" font-size="28">${teksInisial}</text></svg>`;
@@ -64,7 +88,6 @@
     return buatSvgAvatar(nama);
   }
 
-  // Pasang fallback otomatis jika foto eksternal gagal dimuat
   document.addEventListener("error", (e) => {
     const el = e.target;
     if (el && el.tagName === "IMG" && el.dataset.fallbackNama && !el.dataset.fallbackDone) {
@@ -73,10 +96,9 @@
     }
   }, true);
 
-  // Cegah auto-refresh menimpa DOM saat user sedang membuka komentar atau mengetik
-  function sedangSibukKomentar() {
+  function sedangSibukInteraksi() {
     const aktif = document.activeElement;
-    if (aktif && (aktif.tagName === "INPUT" || aktif.tagName === "TEXTAREA")) {
+    if (aktif && (aktif.tagName === "INPUT" || aktif.tagName === "TEXTAREA" || aktif.tagName === "SELECT")) {
       return true;
     }
     return komenTerbuka.size > 0;
@@ -86,7 +108,7 @@
     if (typeof window.renderSemuaTab === "function" && !window.renderSemuaTab._mtxWrapped) {
       const asliRender = window.renderSemuaTab;
       const pembungkus = function (...args) {
-        if (sedangSibukKomentar()) return;
+        if (sedangSibukInteraksi()) return;
         return asliRender.apply(this, args);
       };
       pembungkus._mtxWrapped = true;
@@ -96,7 +118,6 @@
   lindungiAutoRefresh();
   setInterval(lindungiAutoRefresh, 1000);
 
-  // Reset kunci komentar jika tombol Refresh diklik manual
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("button");
     if (btn && normText(btn.textContent) === "Refresh") {
@@ -104,7 +125,7 @@
     }
   }, true);
 
-  // 1. CSS Frutiger Aero Bersih & Responsif untuk Desktop + HP
+  // 1. CSS Frutiger Aero Bersih & Responsif
   const style = document.createElement("style");
   style.textContent = `
     #mtx-auth-gate {
@@ -212,7 +233,60 @@
       border-radius: 10px; padding: 5px 10px; font-size: 12px; font-weight: 700;
     }
 
-    /* Dock Shorts: Posisi rapi di atas caption agar tidak bertabrakan */
+    /* Gaya Halaman Pencarian */
+    .mtx-search-box-wrap {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
+    }
+    .mtx-search-input {
+      flex: 1; padding: 10px 14px; border-radius: 12px;
+      border: 1.5px solid #8ecae6; background: rgba(255,255,255,0.96);
+      font-size: 14px; color: #083d63; outline: none;
+      box-shadow: inset 0 1px 4px rgba(0, 60, 110, 0.08);
+    }
+    .mtx-search-input:focus {
+      border-color: #0096c7;
+      box-shadow: 0 0 0 3px rgba(72, 202, 228, 0.25);
+    }
+    .mtx-filter-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between;
+    }
+    .mtx-filter-chips {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .mtx-chip-btn {
+      padding: 5px 12px; border-radius: 14px; border: 1px solid #90e0ef;
+      background: rgba(255,255,255,0.85); color: #09456b;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .mtx-chip-btn.active {
+      background: linear-gradient(180deg, #38b6ff 0%, #0077b6 100%);
+      color: #ffffff; border-color: #ffffff;
+      box-shadow: 0 2px 8px rgba(0, 119, 182, 0.3);
+    }
+    .mtx-sort-select {
+      padding: 5px 10px; border-radius: 10px; border: 1px solid #90e0ef;
+      background: rgba(255,255,255,0.9); color: #09456b;
+      font-size: 12px; font-weight: 700; outline: none; cursor: pointer;
+    }
+    .mtx-badge-tipe {
+      display: inline-block; padding: 2px 8px; border-radius: 8px;
+      background: linear-gradient(180deg, #caf0f8, #90e0ef);
+      color: #034066; font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px;
+    }
+    .mtx-hl {
+      background: #fff3b0; color: #052c47; padding: 0 3px; border-radius: 4px;
+    }
+    .mtx-ch-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px; margin-bottom: 14px;
+    }
+    .mtx-ch-mini-card {
+      background: rgba(255,255,255,0.88); border: 1px solid #bce3fa;
+      border-radius: 14px; padding: 12px; display: flex; align-items: center;
+      justify-content: space-between; gap: 10px;
+    }
+
+    /* Dock Shorts */
     .mtx-shorts-dock {
       position: absolute;
       right: 10px;
@@ -306,7 +380,6 @@
       text-align: left;
     }
 
-    /* Perbaikan Layout Khusus Layar HP */
     @media (max-width: 640px) {
       .aero-navbar {
         flex-direction: column !important;
@@ -523,11 +596,23 @@
     return userAktif && userAktif.email && userAktif.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   }
 
-  // 3. Tambahkan Tab "Disimpan" dan "Channel"
+  // 3. Tambahkan Tab "Cari", "Disimpan", dan "Channel"
   function pasangTabSosial() {
     const navTabs = document.querySelector(".aero-tabs");
     const mainEl  = document.querySelector(".main-container");
     if (!navTabs || !mainEl) return;
+
+    if (!document.getElementById("tab-search")) {
+      const btnSearch = document.createElement("button");
+      btnSearch.className = "tab-btn";
+      btnSearch.id = "tab-search";
+      btnSearch.textContent = "Cari";
+      btnSearch.onclick = () => {
+        komenTerbuka.clear();
+        bukaTabKhusus("search");
+      };
+      navTabs.appendChild(btnSearch);
+    }
 
     if (!document.getElementById("tab-saved")) {
       const btnSaved = document.createElement("button");
@@ -554,6 +639,13 @@
       navTabs.appendChild(btnCh);
     }
 
+    if (!document.getElementById("view-search")) {
+      const secSearch = document.createElement("section");
+      secSearch.id = "view-search";
+      secSearch.className = "hidden";
+      mainEl.appendChild(secSearch);
+    }
+
     if (!document.getElementById("view-saved")) {
       const secSaved = document.createElement("section");
       secSaved.id = "view-saved";
@@ -571,13 +663,17 @@
   pasangTabSosial();
 
   function bukaTabKhusus(namaTab) {
-    ["view-feed", "view-video", "view-short", "view-saved", "view-channel"].forEach((id) => {
+    ["view-feed", "view-video", "view-short", "view-search", "view-saved", "view-channel"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.classList.add("hidden");
     });
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
 
-    if (namaTab === "saved") {
+    if (namaTab === "search") {
+      document.getElementById("view-search")?.classList.remove("hidden");
+      document.getElementById("tab-search")?.classList.add("active");
+      renderHalamanCari(false);
+    } else if (namaTab === "saved") {
       document.getElementById("view-saved")?.classList.remove("hidden");
       document.getElementById("tab-saved")?.classList.add("active");
       renderHalamanDisimpan();
@@ -593,14 +689,24 @@
     if (!btn) return;
     if (["tab-feed", "tab-video", "tab-short"].includes(btn.id)) {
       komenTerbuka.clear();
-      document.getElementById("view-saved")?.classList.add("hidden");
-      document.getElementById("view-channel")?.classList.add("hidden");
-      document.getElementById("tab-saved")?.classList.remove("active");
-      document.getElementById("tab-channel")?.classList.remove("active");
+      ["view-search", "view-saved", "view-channel"].forEach((id) => document.getElementById(id)?.classList.add("hidden"));
+      ["tab-search", "tab-saved", "tab-channel"].forEach((id) => document.getElementById(id)?.classList.remove("active"));
       setTimeout(() => {
         pasangKontrolSemua(true);
         updatePemutarUtamaSocial(true);
       }, 80);
+    }
+  });
+
+  // Pintasan keyboard '/' untuk langsung buka pencarian saat tidak sedang mengetik
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "/" && userAktif) {
+      const aktif = document.activeElement;
+      if (!aktif || !["INPUT", "TEXTAREA", "SELECT"].includes(aktif.tagName)) {
+        e.preventDefault();
+        bukaTabKhusus("search");
+        setTimeout(() => document.getElementById("mtx-search-input")?.focus(), 40);
+      }
     }
   });
 
@@ -650,6 +756,9 @@
           daftarChannelCache = list;
           kunciInputNama();
           pasangInfoHeader();
+          if (!document.getElementById("view-search")?.classList.contains("hidden")) {
+            renderHasilCariSaja();
+          }
           if (!document.getElementById("view-channel")?.classList.contains("hidden")) {
             renderHalamanChannel(channelSedangDilihat || userAktif.email.toLowerCase());
           }
@@ -711,10 +820,13 @@
       response.clone().json().then((data) => {
         if (Array.isArray(data)) {
           daftarPostCache = data;
-          if (!sedangSibukKomentar()) {
+          if (!sedangSibukInteraksi()) {
             setTimeout(() => {
               pasangKontrolSemua(true);
               updatePemutarUtamaSocial(true);
+              if (!document.getElementById("view-search")?.classList.contains("hidden")) {
+                renderHasilCariSaja();
+              }
             }, 120);
           }
         }
@@ -754,6 +866,7 @@
         daftarPostCache = await res.json();
         pasangKontrolSemua(true);
         updatePemutarUtamaSocial(true);
+        if (!document.getElementById("view-search")?.classList.contains("hidden")) renderHasilCariSaja();
         if (!document.getElementById("view-saved")?.classList.contains("hidden")) renderHalamanDisimpan();
         if (!document.getElementById("view-channel")?.classList.contains("hidden")) {
           renderHalamanChannel(channelSedangDilihat || userAktif.email.toLowerCase());
@@ -1277,13 +1390,398 @@
   }
 
   setInterval(() => {
-    if (!sedangSibukKomentar()) {
+    if (!sedangSibukInteraksi()) {
       pasangKontrolSemua(false);
       updatePemutarUtamaSocial(false);
     }
   }, 1500);
 
-  // 8. Halaman Channel & Edit Profil
+  // 8. Halaman Pencarian Terpadu (Video, Shorts, Foto, Teks, Channel)
+  function renderHalamanCari(hanyaHasil) {
+    const wadah = document.getElementById("view-search");
+    if (!wadah || !userAktif) return;
+
+    if (!hanyaHasil || !document.getElementById("mtx-search-input")) {
+      const kategoriList = [
+        { id: "semua",   label: "Semua" },
+        { id: "video",   label: "Video" },
+        { id: "short",   label: "Shorts" },
+        { id: "foto",    label: "Foto" },
+        { id: "teks",    label: "Teks" },
+        { id: "channel", label: "Channel" }
+      ];
+
+      wadah.innerHTML = `
+        <div class="mtx-channel-banner" style="padding:14px;">
+          <div class="mtx-search-box-wrap">
+            <input type="text" id="mtx-search-input" class="mtx-search-input" placeholder="Cari video, shorts, foto, status, atau nama channel..." value="${esc(kataKunciCari)}">
+            <button type="button" id="mtx-search-clear" class="win7-btn" style="display:${kataKunciCari ? "inline-block" : "none"};">Reset</button>
+          </div>
+          <div class="mtx-filter-row">
+            <div class="mtx-filter-chips" id="mtx-search-filters">
+              ${kategoriList.map((k) => `
+                <button type="button" data-filter="${k.id}" class="mtx-chip-btn ${filterCari === k.id ? "active" : ""}">${k.label}</button>
+              `).join("")}
+            </div>
+            <select id="mtx-search-sort" class="mtx-sort-select" title="Urutkan hasil">
+              <option value="terbaru" ${urutCari === "terbaru" ? "selected" : ""}>Terbaru</option>
+              <option value="populer" ${urutCari === "populer" ? "selected" : ""}>Terpopuler</option>
+            </select>
+          </div>
+        </div>
+        <div id="mtx-search-results"></div>
+      `;
+
+      const inp = document.getElementById("mtx-search-input");
+      const btnClear = document.getElementById("mtx-search-clear");
+
+      inp.oninput = () => {
+        kataKunciCari = inp.value;
+        btnClear.style.display = kataKunciCari ? "inline-block" : "none";
+        renderHasilCariSaja();
+      };
+
+      btnClear.onclick = () => {
+        kataKunciCari = "";
+        inp.value = "";
+        btnClear.style.display = "none";
+        inp.focus();
+        renderHasilCariSaja();
+      };
+
+      document.querySelectorAll("#mtx-search-filters .mtx-chip-btn").forEach((btn) => {
+        btn.onclick = () => {
+          filterCari = btn.getAttribute("data-filter");
+          document.querySelectorAll("#mtx-search-filters .mtx-chip-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          renderHasilCariSaja();
+        };
+      });
+
+      document.getElementById("mtx-search-sort").onchange = (e) => {
+        urutCari = e.target.value;
+        renderHasilCariSaja();
+      };
+    }
+
+    renderHasilCariSaja();
+  }
+
+  function renderHasilCariSaja() {
+    const hasilBox = document.getElementById("mtx-search-results");
+    if (!hasilBox || !userAktif) return;
+
+    const myEmail = userAktif.email.toLowerCase();
+    const profilSaya = getProfilSaya();
+    const daftarSaved = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
+    const serverUrl = getServerUrl();
+    const q = kataKunciCari.trim().toLowerCase();
+
+    // Filter Channel
+    const channelCocok = daftarChannelCache.filter((c) => {
+      if (!q) return true;
+      return (c.nama || "").toLowerCase().includes(q) ||
+             (c.email || "").toLowerCase().includes(q) ||
+             (c.bio || "").toLowerCase().includes(q);
+    });
+
+    // Filter Postingan (Video, Shorts, Foto, Teks)
+    let postCocok = daftarPostCache.filter((p) => {
+      const tipe = (p.tipe || "feed").toLowerCase();
+      const media = (p.jenisMedia || "none").toLowerCase();
+
+      if (filterCari === "video" && tipe !== "video") return false;
+      if (filterCari === "short" && tipe !== "short") return false;
+      if (filterCari === "foto" && media !== "image") return false;
+      if (filterCari === "teks" && (media !== "none" || tipe === "video" || tipe === "short")) return false;
+      if (filterCari === "channel") return false;
+
+      if (!q) return true;
+
+      const chData = daftarChannelCache.find((c) => c.email === (p.email || "").toLowerCase());
+      const chNama = chData ? chData.nama : (p.channelNama || p.penulis || "");
+      const teksKomen = Array.isArray(p.comments)
+        ? p.comments.map((c) => `${c.nama || ""} ${c.teks || ""}`).join(" ")
+        : "";
+
+      const gabungan = `${p.teks || ""} ${chNama} ${p.penulis || ""} ${p.email || ""} ${tipe} ${teksKomen}`.toLowerCase();
+      return gabungan.includes(q);
+    });
+
+    // Pengurutan
+    if (urutCari === "populer") {
+      postCocok = [...postCocok].sort((a, b) => {
+        const skorA = (a.likes?.length || 0) * 2 + (a.comments?.length || 0);
+        const skorB = (b.likes?.length || 0) * 2 + (b.comments?.length || 0);
+        return skorB - skorA;
+      });
+    } else {
+      postCocok = [...postCocok].sort((a, b) => (b.dibuatPada || 0) - (a.dibuatPada || 0));
+    }
+
+    hasilBox.innerHTML = "";
+
+    // Info ringkas status pencarian
+    const infoBar = document.createElement("div");
+    infoBar.style.cssText = "font-size:12px;font-weight:700;color:#ffffff;text-shadow:0 1px 3px rgba(0,40,80,0.45);margin-bottom:10px;padding:0 4px;";
+    if (!q) {
+      infoBar.textContent = filterCari === "channel"
+        ? `Semua Channel Aktif (${channelCocok.length})`
+        : `Jelajah Konten (${postCocok.length} tersedia)`;
+    } else {
+      const total = filterCari === "channel" ? channelCocok.length : postCocok.length + (filterCari === "semua" ? channelCocok.length : 0);
+      infoBar.textContent = `Ditemukan ${total} hasil untuk "${kataKunciCari.trim()}"`;
+    }
+    hasilBox.appendChild(infoBar);
+
+    // Bagian Channel (tampil jika filter 'semua' atau 'channel')
+    if ((filterCari === "semua" || filterCari === "channel") && channelCocok.length > 0) {
+      const listChTampil = filterCari === "channel" ? channelCocok : channelCocok.slice(0, 6);
+      const gridCh = document.createElement("div");
+      gridCh.className = "mtx-ch-grid";
+
+      listChTampil.forEach((ch) => {
+        const followers = Array.isArray(ch.followers) ? ch.followers : [];
+        const sudahFollow = followers.includes(myEmail);
+        const bukanSaya = ch.email !== myEmail;
+
+        const card = document.createElement("div");
+        card.className = "mtx-ch-mini-card";
+        card.innerHTML = `
+          <div class="mtx-creator-info" style="flex:1;">
+            <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" data-fallback-nama="${esc(ch.nama)}" style="width:40px;height:40px;">
+            <div style="overflow:hidden;">
+              <div style="font-size:13px;font-weight:800;color:#083d63;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${highlightTeks(ch.nama, kataKunciCari)}</div>
+              <div style="font-size:11px;color:#3d6e8c;">${followers.length} Pengikut</div>
+              <div style="font-size:11px;color:#4f7994;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${highlightTeks(ch.bio || "", kataKunciCari)}</div>
+            </div>
+          </div>
+        `;
+        card.querySelector(".mtx-creator-info").onclick = () => {
+          komenTerbuka.clear();
+          channelSedangDilihat = ch.email;
+          bukaTabKhusus("channel");
+        };
+
+        if (bukanSaya) {
+          const btnF = document.createElement("button");
+          btnF.type = "button";
+          btnF.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
+          btnF.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
+          btnF.onclick = async () => {
+            if (await kirimAksiApi("/api/follow", { targetEmail: ch.email })) {
+              await segarkanSosial();
+            }
+          };
+          card.appendChild(btnF);
+        }
+        gridCh.appendChild(card);
+      });
+      hasilBox.appendChild(gridCh);
+    }
+
+    if (filterCari === "channel") {
+      if (channelCocok.length === 0) {
+        hasilBox.innerHTML += `<div class="mtx-channel-banner" style="text-align:center;">Tidak ada channel yang cocok dengan "${esc(kataKunciCari)}".</div>`;
+      }
+      return;
+    }
+
+    // Jika tidak ada postingan cocok
+    if (postCocok.length === 0) {
+      const kosong = document.createElement("div");
+      kosong.className = "mtx-channel-banner";
+      kosong.style.textAlign = "center";
+      kosong.textContent = q
+        ? `Tidak ditemukan postingan untuk kata kunci "${kataKunciCari.trim()}".`
+        : "Belum ada konten pada kategori ini.";
+      hasilBox.appendChild(kosong);
+      return;
+    }
+
+    // Render Kartu Hasil Postingan
+    postCocok.forEach((p) => {
+      const chData = daftarChannelCache.find((c) => c.email === (p.email || "").toLowerCase());
+      const chNama = chData ? chData.nama : (p.channelNama || p.penulis);
+      const chFoto = chData ? chData.foto : (p.channelFoto || "");
+      const chFollowers = chData && Array.isArray(chData.followers) ? chData.followers : [];
+      const sudahFollow = chFollowers.includes(myEmail);
+      const bukanMilikSendiri = p.email && p.email.toLowerCase() !== myEmail;
+
+      const likes = Array.isArray(p.likes) ? p.likes : [];
+      const comments = Array.isArray(p.comments) ? p.comments : [];
+      const sudahLike = likes.includes(myEmail);
+      const sudahSave = daftarSaved.includes(p.id);
+
+      const tipeLabel = p.tipe === "video"
+        ? "VIDEO"
+        : (p.tipe === "short" ? "SHORTS" : (p.jenisMedia === "image" ? "FOTO" : "TEKS"));
+
+      const card = document.createElement("div");
+      card.className = "mtx-channel-banner";
+      card.style.padding = "14px";
+
+      // Header Kreator + Badge Tipe
+      const topBar = document.createElement("div");
+      topBar.className = "mtx-creator-bar";
+      topBar.innerHTML = `
+        <div class="mtx-creator-info">
+          <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
+          <div>
+            <div style="font-size:12.5px;font-weight:700;color:#083d63;">${highlightTeks(chNama, kataKunciCari)}</div>
+            <div style="font-size:11px;color:#3d6e8c;">${chFollowers.length} Pengikut • ${formatWaktuSingkat(p.dibuatPada)}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="mtx-badge-tipe">${tipeLabel}</span>
+        </div>
+      `;
+      topBar.querySelector(".mtx-creator-info").onclick = () => {
+        if (p.email) {
+          komenTerbuka.clear();
+          channelSedangDilihat = p.email.toLowerCase();
+          bukaTabKhusus("channel");
+        }
+      };
+      if (bukanMilikSendiri) {
+        const btnF = document.createElement("button");
+        btnF.type = "button";
+        btnF.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
+        btnF.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
+        btnF.onclick = async () => {
+          if (await kirimAksiApi("/api/follow", { targetEmail: p.email })) {
+            await segarkanSosial();
+          }
+        };
+        topBar.lastElementChild.appendChild(btnF);
+      }
+      card.appendChild(topBar);
+
+      // Teks Caption dengan Highlight
+      if (p.teks) {
+        const captionEl = document.createElement("div");
+        captionEl.style.cssText = "font-size:13.5px;line-height:1.45;margin:6px 0;color:#093b5c;";
+        captionEl.innerHTML = highlightTeks(p.teks, kataKunciCari);
+        card.appendChild(captionEl);
+      }
+
+      // Preview Media
+      const mediaUrl = p.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(p.file)}` : "";
+      if (p.jenisMedia === "video" && mediaUrl) {
+        const vid = document.createElement("video");
+        vid.src = mediaUrl;
+        vid.controls = true;
+        vid.preload = "metadata";
+        vid.style.cssText = "width:100%;max-height:300px;border-radius:12px;background:#000;margin-top:6px;";
+        card.appendChild(vid);
+      } else if (p.jenisMedia === "image" && mediaUrl) {
+        const img = document.createElement("img");
+        img.src = mediaUrl;
+        img.style.cssText = "width:100%;max-height:340px;object-fit:contain;border-radius:12px;margin-top:6px;background:rgba(255,255,255,0.5);";
+        card.appendChild(img);
+      }
+
+      // Tombol Interaksi
+      const bar = document.createElement("div");
+      bar.className = "mtx-social-bar";
+
+      const btnLike = document.createElement("button");
+      btnLike.type = "button";
+      btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
+      btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
+      btnLike.onclick = async () => {
+        if (await kirimAksiApi("/api/like", { id: p.id })) {
+          await segarkanSosial();
+        }
+      };
+      bar.appendChild(btnLike);
+
+      const btnKomen = document.createElement("button");
+      btnKomen.type = "button";
+      btnKomen.className = "mtx-act-btn";
+      btnKomen.textContent = `Komentar (${comments.length})`;
+      btnKomen.onclick = () => {
+        if (komenTerbuka.has(p.id)) {
+          komenTerbuka.delete(p.id);
+        } else {
+          komenTerbuka.add(p.id);
+        }
+        renderHasilCariSaja();
+      };
+      bar.appendChild(btnKomen);
+
+      const btnSave = document.createElement("button");
+      btnSave.type = "button";
+      btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
+      btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan";
+      btnSave.onclick = async () => {
+        if (await kirimAksiApi("/api/save", { id: p.id })) {
+          await segarkanSosial();
+        }
+      };
+      bar.appendChild(btnSave);
+
+      // Tombol Buka di Pemutar Utama / Shorts
+      if (p.tipe === "video" && mediaUrl) {
+        const btnBukaVid = document.createElement("button");
+        btnBukaVid.type = "button";
+        btnBukaVid.className = "mtx-act-btn";
+        btnBukaVid.textContent = "Buka Pemutar Utama";
+        btnBukaVid.onclick = () => {
+          document.getElementById("tab-video")?.click();
+          setTimeout(() => {
+            const box = document.getElementById("boxPemutarUtama");
+            const vidMain = document.getElementById("videoPemutarUtama");
+            const jdl = document.getElementById("judulPemutarUtama");
+            const inf = document.getElementById("infoPemutarUtama");
+            if (box && vidMain) {
+              box.classList.remove("hidden");
+              vidMain.src = mediaUrl;
+              if (jdl) jdl.textContent = p.teks || "Video";
+              if (inf) inf.textContent = `Diunggah oleh ${chNama}`;
+              vidMain.play().catch(() => {});
+              updatePemutarUtamaSocial(true);
+              box.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }, 90);
+        };
+        bar.appendChild(btnBukaVid);
+      } else if (p.tipe === "short") {
+        const btnBukaShort = document.createElement("button");
+        btnBukaShort.type = "button";
+        btnBukaShort.className = "mtx-act-btn";
+        btnBukaShort.textContent = "Buka di Shorts";
+        btnBukaShort.onclick = () => {
+          document.getElementById("tab-short")?.click();
+        };
+        bar.appendChild(btnBukaShort);
+      }
+
+      if (isAdmin()) {
+        const btnDel = document.createElement("button");
+        btnDel.type = "button";
+        btnDel.className = "mtx-btn-hapus-card";
+        btnDel.textContent = "Hapus";
+        btnDel.onclick = async () => {
+          if (!confirm(`Hapus permanen postingan dari ${chNama}?`)) return;
+          if (await kirimAksiApi("/api/delete", { id: p.id })) {
+            await segarkanSosial();
+          }
+        };
+        bar.appendChild(btnDel);
+      }
+
+      card.appendChild(bar);
+
+      if (komenTerbuka.has(p.id)) {
+        card.appendChild(buatDrawerKomentar(p, false));
+      }
+
+      hasilBox.appendChild(card);
+    });
+  }
+
+  // 9. Halaman Channel & Edit Profil
   function renderHalamanChannel(targetEmail) {
     const wadah = document.getElementById("view-channel");
     if (!wadah || !userAktif) return;
@@ -1450,7 +1948,7 @@
     }
   }
 
-  // 9. Halaman Postingan Disimpan
+  // 10. Halaman Postingan Disimpan
   function renderHalamanDisimpan() {
     const wadah = document.getElementById("view-saved");
     if (!wadah || !userAktif) return;
