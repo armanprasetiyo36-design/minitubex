@@ -18,109 +18,153 @@
 
   let userAktif = null;
   let daftarPostCache = [];
+  let daftarChannelCache = [];
+  let channelSedangDilihat = null; // email channel yang dibuka
+  const komenTerbuka = new Set();
+  const drafKomen = {};
 
+  function getServerUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("server") || "";
+  }
+
+  function esc(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function resolveAvatarUrl(foto, nama) {
+    const serverUrl = getServerUrl();
+    if (foto) {
+      if (foto.startsWith("http://") || foto.startsWith("https://")) return foto;
+      if (serverUrl) return `${serverUrl}/media/${encodeURIComponent(foto)}`;
+    }
+    const inisial = encodeURIComponent((nama || "U").slice(0, 2).toUpperCase());
+    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="%2338b6ff"/><stop offset="100%" stop-color="%230077b6"/></linearGradient></defs><rect width="80" height="80" rx="40" fill="url(%23g)"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="sans-serif" font-weight="bold" font-size="30">${inisial}</text></svg>`;
+  }
+
+  // 1. Styling Frutiger Aero untuk Auth, Channel, Like, Comment, Follow, Simpan
   const style = document.createElement("style");
   style.textContent = `
     #mtx-auth-gate {
-      position: fixed;
-      inset: 0;
-      z-index: 10000;
+      position: fixed; inset: 0; z-index: 10000;
       background: linear-gradient(135deg, rgba(12, 65, 110, 0.88), rgba(20, 125, 165, 0.85));
       backdrop-filter: blur(14px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
+      display: flex; align-items: center; justify-content: center; padding: 16px;
     }
     .mtx-auth-card {
-      width: 100%;
-      max-width: 400px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(218,242,255,0.92) 100%);
-      border: 1.5px solid #ffffff;
-      border-radius: 20px;
-      padding: 22px 24px;
+      width: 100%; max-width: 420px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(218,242,255,0.94) 100%);
+      border: 1.5px solid #ffffff; border-radius: 20px; padding: 22px 24px;
       box-shadow: 0 14px 36px rgba(0, 35, 70, 0.45);
-      color: #0b3c5d;
-      text-align: center;
+      color: #0b3c5d; text-align: center;
     }
     .mtx-auth-input {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-      border-radius: 11px;
-      border: 1px solid #8ecae6;
-      background: rgba(255,255,255,0.9);
-      font-size: 13.5px;
-      outline: none;
+      width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 10px;
+      border-radius: 11px; border: 1px solid #8ecae6;
+      background: rgba(255,255,255,0.92); font-size: 13.5px; outline: none;
     }
     .mtx-btn-google {
-      width: 100%;
-      padding: 10px;
-      border-radius: 12px;
-      border: 1px solid #b5e2fa;
+      width: 100%; padding: 10px; border-radius: 12px; border: 1px solid #b5e2fa;
       background: linear-gradient(180deg, #ffffff 0%, #e6f5ff 100%);
-      color: #083d63;
-      font-weight: 700;
-      font-size: 14px;
-      cursor: pointer;
-      box-shadow: 0 3px 10px rgba(0, 75, 130, 0.15);
-      margin-bottom: 12px;
+      color: #083d63; font-weight: 700; font-size: 14px; cursor: pointer;
+      box-shadow: 0 3px 10px rgba(0, 75, 130, 0.15); margin-bottom: 12px;
     }
     .mtx-btn-email {
-      width: 100%;
-      padding: 10px;
-      border-radius: 12px;
-      border: none;
+      width: 100%; padding: 10px; border-radius: 12px; border: none;
       background: linear-gradient(180deg, #38b6ff 0%, #0077b6 100%);
-      color: #fff;
-      font-weight: 700;
-      font-size: 13.5px;
-      cursor: pointer;
+      color: #fff; font-weight: 700; font-size: 13.5px; cursor: pointer;
     }
     .mtx-user-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(255,255,255,0.75);
-      border: 1px solid rgba(255,255,255,0.95);
-      border-radius: 20px;
-      padding: 5px 11px;
-      font-size: 12px;
-      font-weight: 600;
-      color: #093b5c;
-      margin-right: 6px;
+      display: inline-flex; align-items: center; gap: 7px;
+      background: rgba(255,255,255,0.82); border: 1px solid #ffffff;
+      border-radius: 22px; padding: 4px 12px 4px 5px;
+      font-size: 12px; font-weight: 700; color: #093b5c; cursor: pointer;
+    }
+    .mtx-user-pill img {
+      width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 1px solid #fff;
     }
     .mtx-admin-tag {
       background: linear-gradient(180deg, #ffd166, #f77f00);
-      color: #fff;
-      padding: 1px 6px;
-      border-radius: 8px;
-      font-size: 10px;
-      font-weight: 800;
+      color: #fff; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 800;
+    }
+    .mtx-creator-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.9);
+      border-radius: 12px; padding: 6px 10px; margin-bottom: 8px;
+    }
+    .mtx-creator-info {
+      display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left;
+    }
+    .mtx-creator-info img {
+      width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1.5px solid #fff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    }
+    .mtx-btn-follow {
+      background: linear-gradient(180deg, #48cae4 0%, #0077b6 100%);
+      color: #fff; border: 1px solid #fff; border-radius: 14px;
+      padding: 4px 11px; font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .mtx-btn-follow.following {
+      background: linear-gradient(180deg, #ffffff 0%, #d8f3ff 100%);
+      color: #084163; border-color: #90e0ef;
+    }
+    .mtx-social-bar {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center;
+    }
+    .mtx-act-btn {
+      background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(225,245,255,0.85) 100%);
+      border: 1px solid #b5e2fa; border-radius: 11px; padding: 5px 10px;
+      font-size: 12px; font-weight: 700; color: #0a466b; cursor: pointer;
+    }
+    .mtx-act-btn.liked {
+      background: linear-gradient(180deg, #ff8fa3 0%, #e63946 100%);
+      color: #fff; border-color: #fff;
+    }
+    .mtx-act-btn.saved {
+      background: linear-gradient(180deg, #ffd166 0%, #f4a261 100%);
+      color: #fff; border-color: #fff;
     }
     .mtx-btn-hapus-card {
       background: linear-gradient(180deg, #ff6b6b, #c9184a);
-      color: #fff;
-      border: 1px solid #fff;
-      border-radius: 10px;
-      padding: 4px 10px;
-      font-size: 11.5px;
-      font-weight: 700;
-      cursor: pointer;
-      margin-top: 6px;
-      box-shadow: 0 2px 6px rgba(180, 0, 40, 0.25);
+      color: #fff; border: 1px solid #fff; border-radius: 11px;
+      padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+    }
+    .mtx-comment-box {
+      margin-top: 8px; background: rgba(255,255,255,0.75);
+      border: 1px solid #bce3fa; border-radius: 12px; padding: 8px 10px; text-align: left;
+    }
+    .mtx-comment-item {
+      display: flex; gap: 7px; align-items: flex-start;
+      padding: 5px 0; border-bottom: 1px solid rgba(142,202,230,0.4); font-size: 12px;
+    }
+    .mtx-comment-item:last-child { border-bottom: none; }
+    .mtx-comment-item img {
+      width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-top: 2px;
+    }
+    .mtx-channel-banner {
+      background: linear-gradient(135deg, rgba(240,250,255,0.92), rgba(205,238,255,0.88));
+      border: 1.5px solid #ffffff; border-radius: 18px; padding: 18px;
+      box-shadow: 0 8px 24px rgba(0, 65, 115, 0.18); margin-bottom: 16px; color: #093b5c;
+    }
+    .mtx-stat-chip {
+      background: rgba(255,255,255,0.85); border: 1px solid #90e0ef;
+      border-radius: 12px; padding: 6px 12px; font-size: 12px; font-weight: 700;
     }
   `;
   document.head.appendChild(style);
 
+  // 2. Layar Login Wajib
   const gate = document.createElement("div");
   gate.id = "mtx-auth-gate";
   gate.innerHTML = `
     <div class="mtx-auth-card">
       <h2 style="margin:0 0 4px; font-size:21px;">MiniTube X</h2>
       <p style="margin:0 0 14px; font-size:12.5px; color:#1d5b79;">
-        Wajib login dengan Akun Google atau Email asli agar tidak ada penyamaran nama.
+        Masuk dengan Google atau Email untuk membuat Channel & berinteraksi.
       </p>
 
       <div id="mtx-form-login">
@@ -130,7 +174,7 @@
 
         <div style="font-size:11.5px; color:#4a7c9b; margin:8px 0;">— atau pakai email apapun —</div>
 
-        <input type="text" id="mtx-reg-nama" class="mtx-auth-input" placeholder="Nama lengkap kamu (khusus daftar baru)" style="display:none;">
+        <input type="text" id="mtx-reg-nama" class="mtx-auth-input" placeholder="Nama Channel kamu (khusus daftar baru)" style="display:none;">
         <input type="email" id="mtx-auth-email" class="mtx-auth-input" placeholder="Alamat email kamu (contoh: nama@gmail.com)">
         <input type="password" id="mtx-auth-pass" class="mtx-auth-input" placeholder="Password (minimal 6 karakter)">
 
@@ -233,17 +277,163 @@
     auth.signOut();
   };
 
-  function kunciInputNama(user) {
+  function getProfilSaya() {
+    if (!userAktif) return null;
+    const myEmail = userAktif.email.toLowerCase();
+    return daftarChannelCache.find((c) => c.email === myEmail) || {
+      email: myEmail,
+      nama: userAktif.displayName || myEmail.split("@")[0],
+      bio: "Kreator di MiniTube X",
+      foto: userAktif.photoURL || "",
+      followers: [],
+      saved: []
+    };
+  }
+
+  function kunciInputNama() {
     const inputNama = document.getElementById("inputNama");
-    if (!inputNama || !user) return;
-    const label = user.displayName ? `${user.displayName} (${user.email})` : user.email;
-    inputNama.value = label;
+    if (!inputNama || !userAktif) return;
+    const p = getProfilSaya();
+    inputNama.value = `${p.nama} (${p.email})`;
     inputNama.readOnly = true;
     inputNama.style.opacity = "0.85";
     inputNama.style.cursor = "not-allowed";
   }
 
-  function terapkanStatusUser(user) {
+  function isAdmin() {
+    return userAktif && userAktif.email && userAktif.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  }
+
+  // 3. Tambahkan Tab "Disimpan" dan "Channel Saya"
+  function pasangTabSosial() {
+    const navTabs = document.querySelector(".aero-tabs");
+    const mainEl  = document.querySelector(".main-container");
+    if (!navTabs || !mainEl) return;
+
+    if (!document.getElementById("tab-saved")) {
+      const btnSaved = document.createElement("button");
+      btnSaved.className = "tab-btn";
+      btnSaved.id = "tab-saved";
+      btnSaved.textContent = "🔖 Disimpan";
+      btnSaved.onclick = () => bukaTabKhusus("saved");
+      navTabs.appendChild(btnSaved);
+    }
+
+    if (!document.getElementById("tab-channel")) {
+      const btnCh = document.createElement("button");
+      btnCh.className = "tab-btn";
+      btnCh.id = "tab-channel";
+      btnCh.textContent = "👤 Channel Saya";
+      btnCh.onclick = () => {
+        channelSedangDilihat = userAktif ? userAktif.email.toLowerCase() : null;
+        bukaTabKhusus("channel");
+      };
+      navTabs.appendChild(btnCh);
+    }
+
+    if (!document.getElementById("view-saved")) {
+      const secSaved = document.createElement("section");
+      secSaved.id = "view-saved";
+      secSaved.className = "feed-container hidden";
+      mainEl.appendChild(secSaved);
+    }
+
+    if (!document.getElementById("view-channel")) {
+      const secCh = document.createElement("section");
+      secCh.id = "view-channel";
+      secCh.className = "hidden";
+      mainEl.appendChild(secCh);
+    }
+  }
+  pasangTabSosial();
+
+  function bukaTabKhusus(namaTab) {
+    ["view-feed", "view-video", "view-short", "view-saved", "view-channel"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add("hidden");
+    });
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+
+    if (namaTab === "saved") {
+      document.getElementById("view-saved")?.classList.remove("hidden");
+      document.getElementById("tab-saved")?.classList.add("active");
+      renderHalamanDisimpan();
+    } else if (namaTab === "channel") {
+      document.getElementById("view-channel")?.classList.remove("hidden");
+      document.getElementById("tab-channel")?.classList.add("active");
+      renderHalamanChannel(channelSedangDilihat || (userAktif && userAktif.email.toLowerCase()));
+    }
+  }
+
+  // Pastikan saat klik tab Feed / Video / Shorts, tab Disimpan & Channel ikut tertutup
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".tab-btn");
+    if (!btn) return;
+    if (["tab-feed", "tab-video", "tab-short"].includes(btn.id)) {
+      document.getElementById("view-saved")?.classList.add("hidden");
+      document.getElementById("view-channel")?.classList.add("hidden");
+      document.getElementById("tab-saved")?.classList.remove("active");
+      document.getElementById("tab-channel")?.classList.remove("active");
+    }
+  });
+
+  // 4. Header Pill Profil & Tombol Keluar
+  function pasangInfoHeader() {
+    const nav = document.querySelector(".nav-actions");
+    if (!nav || !userAktif) return;
+    const lama = document.getElementById("mtx-user-controls");
+    if (lama) lama.remove();
+
+    const p = getProfilSaya();
+    const wrap = document.createElement("span");
+    wrap.id = "mtx-user-controls";
+    wrap.style.cssText = "display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;";
+
+    const pill = document.createElement("span");
+    pill.className = "mtx-user-pill";
+    pill.title = "Buka Channel Saya";
+    pill.innerHTML = `<img src="${resolveAvatarUrl(p.foto, p.nama)}"> <span>${esc(p.nama)}</span> ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}`;
+    pill.onclick = () => {
+      channelSedangDilihat = p.email;
+      bukaTabKhusus("channel");
+    };
+    wrap.appendChild(pill);
+
+    const btnOut = document.createElement("button");
+    btnOut.type = "button";
+    btnOut.className = "win7-btn";
+    btnOut.textContent = "Keluar";
+    btnOut.onclick = () => {
+      if (confirm("Keluar dari akun MiniTube X?")) auth.signOut();
+    };
+    wrap.appendChild(btnOut);
+
+    nav.insertBefore(wrap, nav.firstChild);
+  }
+
+  async function muatDataChannel() {
+    const serverUrl = getServerUrl();
+    if (!serverUrl || !userAktif) return;
+    try {
+      const res = await nativeFetch(`${serverUrl}/api/channels?t=${Date.now()}`, { cache: "no-store" });
+      if (res.ok) {
+        const list = await res.json();
+        if (Array.isArray(list)) {
+          daftarChannelCache = list;
+          kunciInputNama();
+          pasangInfoHeader();
+          if (!document.getElementById("view-channel")?.classList.contains("hidden")) {
+            renderHalamanChannel(channelSedangDilihat || userAktif.email.toLowerCase());
+          }
+          if (!document.getElementById("view-saved")?.classList.contains("hidden")) {
+            renderHalamanDisimpan();
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  async function terapkanStatusUser(user) {
     errBox.textContent = "";
     if (!user) {
       userAktif = null;
@@ -264,59 +454,17 @@
 
     userAktif = user;
     gate.style.display = "none";
-    kunciInputNama(user);
-    pasangInfoHeader(user);
-    if (isAdmin()) pasangTombolHapusPadaKartu();
+    pasangTabSosial();
+    kunciInputNama();
+    pasangInfoHeader();
+    await muatDataChannel();
+    if (typeof renderSemuaTab === "function") renderSemuaTab();
   }
 
   auth.onAuthStateChanged(terapkanStatusUser);
-  setInterval(() => {
-    if (userAktif) kunciInputNama(userAktif);
-  }, 1500);
+  setInterval(() => { if (userAktif) kunciInputNama(); }, 2000);
 
-  function isAdmin() {
-    return userAktif && userAktif.email && userAktif.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  }
-
-  function pasangInfoHeader(user) {
-    const nav = document.querySelector(".nav-actions");
-    if (!nav) return;
-    const lama = document.getElementById("mtx-user-controls");
-    if (lama) lama.remove();
-
-    const wrap = document.createElement("span");
-    wrap.id = "mtx-user-controls";
-    wrap.style.display = "inline-flex";
-    wrap.style.alignItems = "center";
-
-    const pill = document.createElement("span");
-    pill.className = "mtx-user-pill";
-    pill.innerHTML = `${user.displayName || user.email} ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}`;
-    wrap.appendChild(pill);
-
-    if (isAdmin()) {
-      const btnPanel = document.createElement("button");
-      btnPanel.type = "button";
-      btnPanel.className = "win7-btn";
-      btnPanel.style.marginRight = "6px";
-      btnPanel.textContent = "Kelola Hapus";
-      btnPanel.onclick = bukaModalAdmin;
-      wrap.appendChild(btnPanel);
-    }
-
-    const btnOut = document.createElement("button");
-    btnOut.type = "button";
-    btnOut.className = "win7-btn";
-    btnOut.style.marginRight = "6px";
-    btnOut.textContent = "Keluar";
-    btnOut.onclick = () => {
-      if (confirm("Keluar dari akun MiniTube X?")) auth.signOut();
-    };
-    wrap.appendChild(btnOut);
-
-    nav.insertBefore(wrap, nav.firstChild);
-  }
-
+  // 5. Interceptor Fetch untuk Menyisipkan Token & Memperbarui Data
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function (resource, options) {
     const urlStr = typeof resource === "string" ? resource : (resource && resource.url) || "";
@@ -335,7 +483,7 @@
       response.clone().json().then((data) => {
         if (Array.isArray(data)) {
           daftarPostCache = data;
-          if (isAdmin()) setTimeout(pasangTombolHapusPadaKartu, 150);
+          setTimeout(() => pasangKontrolPadaKartu(true), 120);
         }
       }).catch(() => {});
     }
@@ -343,101 +491,442 @@
     return response;
   };
 
-  async function hapusPostAdmin(postId, infoLabel) {
-    if (!isAdmin()) return;
-    if (!confirm(`Hapus permanen postingan dari:\n${infoLabel}?`)) return;
+  // 6. Aksi Sosial: Like, Komentar, Follow, Simpan, Hapus Admin
+  async function kirimAksiApi(endpoint, payload) {
+    const serverUrl = getServerUrl();
+    if (!serverUrl || !userAktif) return false;
+    const token = await userAktif.getIdToken();
+    const res = await nativeFetch(`${serverUrl}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      alert(await res.text());
+      return false;
+    }
+    return true;
+  }
 
-    const params = new URLSearchParams(window.location.search);
-    const serverUrl = params.get("server");
+  async function segarkanSosial() {
+    const serverUrl = getServerUrl();
     if (!serverUrl) return;
-
+    await muatDataChannel();
     try {
-      const token = await userAktif.getIdToken();
-      const res = await nativeFetch(serverUrl + "/api/delete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
-        body: JSON.stringify({ id: postId })
-      });
-      if (!res.ok) {
-        const msg = await res.text();
-        alert("Gagal menghapus: " + msg);
-        return;
+      const res = await nativeFetch(`${serverUrl}/api/posts?t=${Date.now()}`, { cache: "no-store" });
+      if (res.ok) {
+        daftarPostCache = await res.json();
+        pasangKontrolPadaKartu(true);
+        if (!document.getElementById("view-saved")?.classList.contains("hidden")) renderHalamanDisimpan();
+        if (!document.getElementById("view-channel")?.classList.contains("hidden")) {
+          renderHalamanChannel(channelSedangDilihat || userAktif.email.toLowerCase());
+        }
       }
-      if (typeof renderSemuaTab === "function") {
-        renderSemuaTab();
-      } else {
-        window.location.reload();
+    } catch (e) {}
+  }
+
+  // 7. Suntikkan Header Kreator (Avatar + Nama Channel + Follow) & Tombol Like / Komentar / Simpan ke Tiap Kartu
+  function pasangKontrolPadaKartu(paksaUpdate) {
+    if (!userAktif || !daftarPostCache.length) return;
+    const myEmail = userAktif.email.toLowerCase();
+    const profilSaya = getProfilSaya();
+    const daftarSaved = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
+
+    const kandidat = document.querySelectorAll("#view-feed > div, #gridVideo > div, #wadahShorts > div");
+    kandidat.forEach((kartu) => {
+      const lamaWrap = kartu.querySelector(".mtx-social-wrap");
+      if (lamaWrap && !paksaUpdate) return;
+
+      const html = kartu.innerHTML || "";
+      const post = daftarPostCache.find((p) =>
+        (p.file && html.includes(p.file)) ||
+        (p.penulis && html.includes(p.penulis) && (!p.teks || html.includes(p.teks.slice(0, 25))))
+      );
+      if (!post) return;
+
+      if (lamaWrap) lamaWrap.remove();
+      const lamaTop = kartu.querySelector(".mtx-creator-bar");
+      if (lamaTop) lamaTop.remove();
+
+      const chData = daftarChannelCache.find((c) => c.email === (post.email || "").toLowerCase());
+      const chNama = chData ? chData.nama : (post.channelNama || post.penulis);
+      const chFoto = chData ? chData.foto : (post.channelFoto || "");
+      const chFollowers = chData && Array.isArray(chData.followers) ? chData.followers : [];
+      const sudahFollow = chFollowers.includes(myEmail);
+      const bukanMilikSendiri = post.email && post.email.toLowerCase() !== myEmail;
+
+      // Bilah Kreator di Bagian Atas Kartu
+      const topBar = document.createElement("div");
+      topBar.className = "mtx-creator-bar";
+      topBar.innerHTML = `
+        <div class="mtx-creator-info" title="Lihat Channel ${esc(chNama)}">
+          <img src="${resolveAvatarUrl(chFoto, chNama)}">
+          <div>
+            <div style="font-size:12.5px;font-weight:700;color:#083d63;">${esc(chNama)}</div>
+            <div style="font-size:11px;color:#3d6e8c;">${chFollowers.length} Pengikut</div>
+          </div>
+        </div>
+      `;
+      topBar.querySelector(".mtx-creator-info").onclick = (e) => {
+        e.stopPropagation();
+        if (post.email) {
+          channelSedangDilihat = post.email.toLowerCase();
+          bukaTabKhusus("channel");
+        }
+      };
+
+      if (bukanMilikSendiri) {
+        const btnFollow = document.createElement("button");
+        btnFollow.type = "button";
+        btnFollow.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
+        btnFollow.textContent = sudahFollow ? "✓ Mengikuti" : "+ Ikuti";
+        btnFollow.onclick = async (e) => {
+          e.stopPropagation();
+          if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
+            await segarkanSosial();
+          }
+        };
+        topBar.appendChild(btnFollow);
       }
-    } catch (e) {
-      alert("Error koneksi saat menghapus: " + e.message);
+      kartu.insertBefore(topBar, kartu.firstChild);
+
+      // Bilah Aksi Sosial (Like, Komentar, Simpan, Hapus Admin)
+      const likes = Array.isArray(post.likes) ? post.likes : [];
+      const comments = Array.isArray(post.comments) ? post.comments : [];
+      const sudahLike = likes.includes(myEmail);
+      const sudahSave = daftarSaved.includes(post.id);
+
+      const socialWrap = document.createElement("div");
+      socialWrap.className = "mtx-social-wrap";
+
+      const bar = document.createElement("div");
+      bar.className = "mtx-social-bar";
+
+      const btnLike = document.createElement("button");
+      btnLike.type = "button";
+      btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
+      btnLike.textContent = `${sudahLike ? "❤️" : "🤍"} Suka (${likes.length})`;
+      btnLike.onclick = async (e) => {
+        e.stopPropagation();
+        if (await kirimAksiApi("/api/like", { id: post.id })) {
+          await segarkanSosial();
+        }
+      };
+      bar.appendChild(btnLike);
+
+      const btnKomen = document.createElement("button");
+      btnKomen.type = "button";
+      btnKomen.className = "mtx-act-btn";
+      btnKomen.textContent = `💬 Komentar (${comments.length})`;
+      btnKomen.onclick = (e) => {
+        e.stopPropagation();
+        if (komenTerbuka.has(post.id)) {
+          komenTerbuka.delete(post.id);
+        } else {
+          komenTerbuka.add(post.id);
+        }
+        pasangKontrolPadaKartu(true);
+      };
+      bar.appendChild(btnKomen);
+
+      const btnSave = document.createElement("button");
+      btnSave.type = "button";
+      btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
+      btnSave.textContent = sudahSave ? "✅ Tersimpan" : "🔖 Simpan";
+      btnSave.onclick = async (e) => {
+        e.stopPropagation();
+        if (await kirimAksiApi("/api/save", { id: post.id })) {
+          await segarkanSosial();
+        }
+      };
+      bar.appendChild(btnSave);
+
+      if (isAdmin()) {
+        const btnHapus = document.createElement("button");
+        btnHapus.type = "button";
+        btnHapus.className = "mtx-btn-hapus-card";
+        btnHapus.textContent = "🗑 Hapus";
+        btnHapus.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm(`Hapus permanen postingan dari ${chNama}?`)) return;
+          if (await kirimAksiApi("/api/delete", { id: post.id })) {
+            if (typeof renderSemuaTab === "function") renderSemuaTab();
+          }
+        };
+        bar.appendChild(btnHapus);
+      }
+      socialWrap.appendChild(bar);
+
+      // Laci Komentar
+      if (komenTerbuka.has(post.id)) {
+        const box = document.createElement("div");
+        box.className = "mtx-comment-box";
+        box.onclick = (e) => e.stopPropagation();
+
+        const listKomenHtml = comments.length === 0
+          ? `<div style="font-size:11.5px;color:#5c7a89;margin-bottom:6px;">Belum ada komentar. Jadilah yang pertama!</div>`
+          : comments.map((c) => {
+              const cProf = daftarChannelCache.find((u) => u.email === (c.email || "").toLowerCase());
+              const cNama = cProf ? cProf.nama : c.nama;
+              const cFoto = cProf ? cProf.foto : c.foto;
+              return `
+                <div class="mtx-comment-item">
+                  <img src="${resolveAvatarUrl(cFoto, cNama)}">
+                  <div>
+                    <strong style="color:#083d63;">${esc(cNama)}</strong><br>
+                    <span style="color:#1b3b4d;">${esc(c.teks)}</span>
+                  </div>
+                </div>
+              `;
+            }).join("");
+
+        box.innerHTML = `
+          <div style="max-height:160px;overflow-y:auto;margin-bottom:6px;">${listKomenHtml}</div>
+          <div style="display:flex;gap:6px;">
+            <input type="text" class="aero-input mtx-input-komen" placeholder="Tulis komentar..." maxlength="280" style="margin:0;padding:6px 10px;font-size:12px;">
+            <button type="button" class="win7-btn win7-btn-primary mtx-send-komen" style="padding:5px 12px;font-size:12px;">Kirim</button>
+          </div>
+        `;
+
+        const inp = box.querySelector(".mtx-input-komen");
+        inp.value = drafKomen[post.id] || "";
+        inp.oninput = () => { drafKomen[post.id] = inp.value; };
+
+        const kirimKomenHandler = async () => {
+          const isi = inp.value.trim();
+          if (!isi) return;
+          drafKomen[post.id] = "";
+          if (await kirimAksiApi("/api/comment", { id: post.id, teks: isi })) {
+            await segarkanSosial();
+          }
+        };
+
+        box.querySelector(".mtx-send-komen").onclick = kirimKomenHandler;
+        inp.onkeydown = (ev) => {
+          if (ev.key === "Enter") kirimKomenHandler();
+        };
+
+        socialWrap.appendChild(box);
+      }
+
+      kartu.appendChild(socialWrap);
+    });
+  }
+  setInterval(() => {
+    const sedangKetik = document.activeElement && document.activeElement.classList.contains("mtx-input-komen");
+    if (!sedangKetik) pasangKontrolPadaKartu(false);
+  }, 1500);
+
+  // 8. Halaman Channel & Edit Profil (Nama Channel, Bio, Foto Profil)
+  function renderHalamanChannel(targetEmail) {
+    const wadah = document.getElementById("view-channel");
+    if (!wadah || !userAktif) return;
+
+    const myEmail = userAktif.email.toLowerCase();
+    const emailCh = (targetEmail || myEmail).toLowerCase();
+    const adalahMilikku = emailCh === myEmail;
+
+    const ch = daftarChannelCache.find((c) => c.email === emailCh) || {
+      email: emailCh,
+      nama: emailCh.split("@")[0],
+      bio: "Kreator di MiniTube X",
+      foto: "",
+      followers: []
+    };
+
+    const followers = Array.isArray(ch.followers) ? ch.followers : [];
+    const followingCount = daftarChannelCache.filter((u) => Array.isArray(u.followers) && u.followers.includes(emailCh)).length;
+    const postinganCh = daftarPostCache.filter((p) => (p.email || "").toLowerCase() === emailCh);
+    const totalSuka = postinganCh.reduce((acc, p) => acc + (Array.isArray(p.likes) ? p.likes.length : 0), 0);
+    const sudahFollow = followers.includes(myEmail);
+    const serverUrl = getServerUrl();
+
+    const tombolAksiHeader = adalahMilikku
+      ? `<button type="button" id="mtx-btn-edit-profil" class="win7-btn win7-btn-primary">✏️ Edit Channel & Foto Profil</button>`
+      : `<button type="button" id="mtx-btn-follow-ch" class="mtx-btn-follow ${sudahFollow ? "following" : ""}" style="padding:7px 16px;font-size:13px;">${sudahFollow ? "✓ Mengikuti" : "+ Ikuti Channel"}</button>`;
+
+    const kartuPostHtml = postinganCh.length === 0
+      ? `<div class="mtx-channel-banner" style="text-align:center;">Belum ada video atau postingan di channel ini.</div>`
+      : postinganCh.map((p) => {
+          const mediaUrl = p.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(p.file)}` : "";
+          const mediaTag = p.jenisMedia === "video" && mediaUrl
+            ? `<video src="${mediaUrl}" controls style="width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:8px;"></video>`
+            : (p.jenisMedia === "image" && mediaUrl
+              ? `<img src="${mediaUrl}" style="width:100%;max-height:320px;object-fit:contain;border-radius:12px;margin-top:8px;">`
+              : "");
+          return `
+            <div class="mtx-channel-banner" style="padding:14px;">
+              <div style="font-size:11.5px;color:#0077b6;font-weight:700;">[${(p.tipe || "feed").toUpperCase()}] • ❤️ ${(p.likes || []).length} Suka • 💬 ${(p.comments || []).length} Komentar</div>
+              <div style="font-size:13.5px;margin-top:4px;">${esc(p.teks || "(Tanpa caption)")}</div>
+              ${mediaTag}
+            </div>
+          `;
+        }).join("");
+
+    wadah.innerHTML = `
+      <div class="mtx-channel-banner">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,65,115,0.25);">
+            <div>
+              <h2 style="margin:0;font-size:20px;">${esc(ch.nama)}</h2>
+              <div style="font-size:12px;color:#2b678a;">${esc(ch.email)}</div>
+              <p style="margin:6px 0 0;font-size:13px;color:#0b3c5d;">${esc(ch.bio || "Belum ada bio channel.")}</p>
+            </div>
+          </div>
+          <div>${tombolAksiHeader}</div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
+          <span class="mtx-stat-chip">👥 ${followers.length} Pengikut</span>
+          <span class="mtx-stat-chip">➕ ${followingCount} Mengikuti</span>
+          <span class="mtx-stat-chip">🎬 ${postinganCh.length} Postingan</span>
+          <span class="mtx-stat-chip">❤️ ${totalSuka} Total Suka</span>
+        </div>
+
+        <div id="mtx-form-edit-profil" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #90e0ef;">
+          <h4 style="margin:0 0 8px;">Edit Profil Channel</h4>
+          <input type="text" id="mtx-edit-nama" class="mtx-auth-input" maxlength="32" value="${esc(ch.nama)}" placeholder="Nama Channel">
+          <input type="text" id="mtx-edit-bio" class="mtx-auth-input" maxlength="140" value="${esc(ch.bio || "")}" placeholder="Bio singkat channel kamu">
+          <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">Ganti Foto Profil (Otomatis dikompres ringan):</label>
+          <input type="file" id="mtx-edit-foto" accept="image/*" style="margin-bottom:10px;font-size:12.5px;">
+          <div style="display:flex;gap:8px;">
+            <button type="button" id="mtx-simpan-profil" class="win7-btn win7-btn-primary">Simpan Perubahan</button>
+            <button type="button" id="mtx-batal-profil" class="win7-btn">Batal</button>
+          </div>
+        </div>
+      </div>
+      ${kartuPostHtml}
+    `;
+
+    if (adalahMilikku) {
+      document.getElementById("mtx-btn-edit-profil").onclick = () => {
+        document.getElementById("mtx-form-edit-profil").style.display = "block";
+      };
+      document.getElementById("mtx-batal-profil").onclick = () => {
+        document.getElementById("mtx-form-edit-profil").style.display = "none";
+      };
+      document.getElementById("mtx-simpan-profil").onclick = simpanEditProfil;
+    } else {
+      document.getElementById("mtx-btn-follow-ch").onclick = async () => {
+        if (await kirimAksiApi("/api/follow", { targetEmail: emailCh })) {
+          await segarkanSosial();
+        }
+      };
     }
   }
 
-  function pasangTombolHapusPadaKartu() {
-    if (!isAdmin() || !daftarPostCache.length) return;
-    const kandidat = document.querySelectorAll("#view-feed > div, #gridVideo > div, #wadahShorts > div");
-    kandidat.forEach((kartu) => {
-      if (kartu.querySelector(".mtx-btn-hapus-card")) return;
-      const html = kartu.innerHTML || "";
-      const cocok = daftarPostCache.find((p) =>
-        (p.file && html.includes(p.file)) ||
-        (p.penulis && p.teks && html.includes(p.penulis) && html.includes(p.teks))
-      );
-      if (cocok) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "mtx-btn-hapus-card";
-        btn.textContent = "🗑 Hapus (Admin)";
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          hapusPostAdmin(cocok.id, cocok.penulis);
-        };
-        kartu.appendChild(btn);
-      }
+  // Kompres foto profil menjadi 200x200 px JPEG (~20 KB) sebelum dikirim ke server
+  function kompresAvatar200px(file) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement("canvas");
+        canvas.width = 200;
+        canvas.height = 200;
+        const ctx = canvas.getContext("2d");
+        const minSide = Math.min(img.width, img.height);
+        const sx = (img.width - minSide) / 2;
+        const sy = (img.height - minSide) / 2;
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, 200, 200);
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+      };
+      img.src = url;
     });
   }
-  setInterval(pasangTombolHapusPadaKartu, 1500);
 
-  function bukaModalAdmin() {
-    if (!isAdmin()) return;
-    const lama = document.getElementById("mtx-admin-modal");
-    if (lama) lama.remove();
+  async function simpanEditProfil() {
+    const serverUrl = getServerUrl();
+    if (!serverUrl || !userAktif) return;
 
-    const mod = document.createElement("div");
-    mod.id = "mtx-admin-modal";
-    mod.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(8,35,58,0.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;";
+    const nama = document.getElementById("mtx-edit-nama").value.trim();
+    const bio  = document.getElementById("mtx-edit-bio").value.trim();
+    const fileFoto = document.getElementById("mtx-edit-foto").files[0];
 
-    const itemHtml = daftarPostCache.length === 0
-      ? "<p style='text-align:center;'>Belum ada postingan aktif.</p>"
-      : daftarPostCache.map((p) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(255,255,255,0.85);padding:8px 12px;border-radius:10px;margin-bottom:8px;border:1px solid #90e0ef;">
-            <div style="font-size:12px;text-align:left;overflow:hidden;">
-              <strong>[${(p.tipe || "feed").toUpperCase()}] ${p.penulis}</strong><br>
-              <span style="color:#333;">${(p.teks || "(Tanpa caption)").slice(0, 60)}</span>
-            </div>
-            <button type="button" data-del-id="${p.id}" data-del-user="${p.penulis}" class="mtx-btn-hapus-card" style="margin:0;white-space:nowrap;">Hapus</button>
+    const btn = document.getElementById("mtx-simpan-profil");
+    btn.disabled = true;
+    btn.textContent = "Menyimpan...";
+
+    try {
+      const token = await userAktif.getIdToken();
+      const metaJson = JSON.stringify({ nama, bio });
+      const metaB64  = btoa(unescape(encodeURIComponent(metaJson)));
+
+      const headers = {
+        "Authorization": "Bearer " + token,
+        "X-Meta": metaB64
+      };
+
+      let bodyBlob = null;
+      if (fileFoto) {
+        bodyBlob = await kompresAvatar200px(fileFoto);
+        headers["X-Filename"] = btoa(unescape(encodeURIComponent("avatar.jpg")));
+        headers["Content-Type"] = "image/jpeg";
+      }
+
+      const res = await nativeFetch(`${serverUrl}/api/profile`, {
+        method: "POST",
+        headers,
+        body: bodyBlob
+      });
+
+      if (!res.ok) {
+        alert("Gagal menyimpan profil: " + (await res.text()));
+      } else {
+        await segarkanSosial();
+      }
+    } catch (e) {
+      alert("Error koneksi: " + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Simpan Perubahan";
+    }
+  }
+
+  // 9. Halaman Postingan Disimpan
+  function renderHalamanDisimpan() {
+    const wadah = document.getElementById("view-saved");
+    if (!wadah || !userAktif) return;
+
+    const profilSaya = getProfilSaya();
+    const savedIds = Array.isArray(profilSaya?.saved) ? profilSaya.saved : [];
+    const daftarTersimpan = daftarPostCache.filter((p) => savedIds.includes(p.id));
+    const serverUrl = getServerUrl();
+
+    if (daftarTersimpan.length === 0) {
+      wadah.innerHTML = `<div class="mtx-channel-banner" style="text-align:center;">Belum ada video atau postingan yang kamu simpan. Klik tombol <strong>🔖 Simpan</strong> pada postingan mana saja!</div>`;
+      return;
+    }
+
+    wadah.innerHTML = daftarTersimpan.map((p) => {
+      const mediaUrl = p.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(p.file)}` : "";
+      const mediaTag = p.jenisMedia === "video" && mediaUrl
+        ? `<video src="${mediaUrl}" controls style="width:100%;max-height:300px;border-radius:12px;background:#000;margin-top:8px;"></video>`
+        : (p.jenisMedia === "image" && mediaUrl
+          ? `<img src="${mediaUrl}" style="width:100%;max-height:340px;object-fit:contain;border-radius:12px;margin-top:8px;">`
+          : "");
+      return `
+        <div class="mtx-channel-banner" style="padding:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <strong style="font-size:13px;color:#083d63;">${esc(p.channelNama || p.penulis)}</strong>
+            <button type="button" data-unsave-id="${p.id}" class="mtx-act-btn saved">🗑 Hapus dari Simpanan</button>
           </div>
-        `).join("");
-
-    mod.innerHTML = `
-      <div class="mtx-auth-card" style="max-width:520px;max-height:80vh;overflow-y:auto;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h3 style="margin:0;font-size:16px;">Panel Hapus Postingan (Admin)</h3>
-          <button type="button" id="mtx-tutup-admin" style="border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-weight:bold;">✕</button>
+          <div style="font-size:13.5px;margin-top:6px;">${esc(p.teks || "(Tanpa caption)")}</div>
+          ${mediaTag}
         </div>
-        ${itemHtml}
-      </div>
-    `;
-    document.body.appendChild(mod);
+      `;
+    }).join("");
 
-    document.getElementById("mtx-tutup-admin").onclick = () => mod.remove();
-    mod.querySelectorAll("[data-del-id]").forEach((btn) => {
+    wadah.querySelectorAll("[data-unsave-id]").forEach((btn) => {
       btn.onclick = async () => {
-        await hapusPostAdmin(btn.getAttribute("data-del-id"), btn.getAttribute("data-del-user"));
-        mod.remove();
+        if (await kirimAksiApi("/api/save", { id: btn.getAttribute("data-unsave-id") })) {
+          await segarkanSosial();
+        }
       };
     });
   }
