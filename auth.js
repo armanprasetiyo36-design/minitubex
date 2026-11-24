@@ -48,17 +48,63 @@
     return String(str || "").replace(/\s+/g, " ").trim();
   }
 
+  // Avatar SVG di-encode penuh agar tidak pernah merusak atribut <img src="...">
+  function buatSvgAvatar(nama) {
+    const teksInisial = (nama || "U").replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase() || "U";
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 80 80"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#48cae4"/><stop offset="100%" stop-color="#0077b6"/></linearGradient></defs><rect width="80" height="80" rx="40" fill="url(#g)"/><text x="40" y="43" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-weight="bold" font-size="28">${teksInisial}</text></svg>`;
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
   function resolveAvatarUrl(foto, nama) {
     const serverUrl = getServerUrl();
     if (foto) {
       if (foto.startsWith("http://") || foto.startsWith("https://")) return foto;
       if (serverUrl) return `${serverUrl}/media/${encodeURIComponent(foto)}`;
     }
-    const inisial = encodeURIComponent((nama || "U").slice(0, 2).toUpperCase());
-    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="%2338b6ff"/><stop offset="100%" stop-color="%230077b6"/></linearGradient></defs><rect width="80" height="80" rx="40" fill="url(%23g)"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" fill="white" font-family="sans-serif" font-weight="bold" font-size="30">${inisial}</text></svg>`;
+    return buatSvgAvatar(nama);
   }
 
-  // 1. CSS Frutiger Aero untuk Auth, Feed, Pemutar Video Utama, & Shorts Dock
+  // Pasang fallback otomatis jika foto eksternal gagal dimuat
+  document.addEventListener("error", (e) => {
+    const el = e.target;
+    if (el && el.tagName === "IMG" && el.dataset.fallbackNama && !el.dataset.fallbackDone) {
+      el.dataset.fallbackDone = "1";
+      el.src = buatSvgAvatar(el.dataset.fallbackNama);
+    }
+  }, true);
+
+  // Cegah auto-refresh menimpa DOM saat user sedang membuka komentar atau mengetik
+  function sedangSibukKomentar() {
+    const aktif = document.activeElement;
+    if (aktif && (aktif.tagName === "INPUT" || aktif.tagName === "TEXTAREA")) {
+      return true;
+    }
+    return komenTerbuka.size > 0;
+  }
+
+  function lindungiAutoRefresh() {
+    if (typeof window.renderSemuaTab === "function" && !window.renderSemuaTab._mtxWrapped) {
+      const asliRender = window.renderSemuaTab;
+      const pembungkus = function (...args) {
+        if (sedangSibukKomentar()) return;
+        return asliRender.apply(this, args);
+      };
+      pembungkus._mtxWrapped = true;
+      window.renderSemuaTab = pembungkus;
+    }
+  }
+  lindungiAutoRefresh();
+  setInterval(lindungiAutoRefresh, 1000);
+
+  // Reset kunci komentar jika tombol Refresh diklik manual
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (btn && normText(btn.textContent) === "Refresh") {
+      komenTerbuka.clear();
+    }
+  }, true);
+
+  // 1. CSS Frutiger Aero Bersih & Responsif untuk Desktop + HP
   const style = document.createElement("style");
   style.textContent = `
     #mtx-auth-gate {
@@ -68,56 +114,55 @@
       display: flex; align-items: center; justify-content: center; padding: 16px;
     }
     .mtx-auth-card {
-      width: 100%; max-width: 420px;
+      width: 100%; max-width: 410px;
       background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(218,242,255,0.94) 100%);
-      border: 1.5px solid #ffffff; border-radius: 20px; padding: 22px 24px;
+      border: 1.5px solid #ffffff; border-radius: 18px; padding: 20px 22px;
       box-shadow: 0 14px 36px rgba(0, 35, 70, 0.45);
       color: #0b3c5d; text-align: center;
     }
     .mtx-auth-input {
-      width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 10px;
-      border-radius: 11px; border: 1px solid #8ecae6;
-      background: rgba(255,255,255,0.92); font-size: 13.5px; outline: none;
+      width: 100%; box-sizing: border-box; padding: 9px 12px; margin-bottom: 10px;
+      border-radius: 10px; border: 1px solid #8ecae6;
+      background: rgba(255,255,255,0.94); font-size: 13.5px; outline: none;
     }
     .mtx-btn-google {
-      width: 100%; padding: 10px; border-radius: 12px; border: 1px solid #b5e2fa;
+      width: 100%; padding: 10px; border-radius: 11px; border: 1px solid #b5e2fa;
       background: linear-gradient(180deg, #ffffff 0%, #e6f5ff 100%);
-      color: #083d63; font-weight: 700; font-size: 14px; cursor: pointer;
-      box-shadow: 0 3px 10px rgba(0, 75, 130, 0.15); margin-bottom: 12px;
+      color: #083d63; font-weight: 700; font-size: 13.5px; cursor: pointer;
+      box-shadow: 0 3px 10px rgba(0, 75, 130, 0.15); margin-bottom: 10px;
     }
     .mtx-btn-email {
-      width: 100%; padding: 10px; border-radius: 12px; border: none;
+      width: 100%; padding: 10px; border-radius: 11px; border: none;
       background: linear-gradient(180deg, #38b6ff 0%, #0077b6 100%);
       color: #fff; font-weight: 700; font-size: 13.5px; cursor: pointer;
     }
     .mtx-user-pill {
-      display: inline-flex; align-items: center; gap: 7px;
-      background: rgba(255,255,255,0.82); border: 1px solid #ffffff;
-      border-radius: 22px; padding: 4px 12px 4px 5px;
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.85); border: 1px solid #ffffff;
+      border-radius: 20px; padding: 3px 10px 3px 4px;
       font-size: 12px; font-weight: 700; color: #093b5c; cursor: pointer;
     }
     .mtx-user-pill img {
-      width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 1px solid #fff;
+      width: 22px; height: 22px; border-radius: 50%; object-fit: cover; border: 1px solid #fff;
     }
     .mtx-admin-tag {
       background: linear-gradient(180deg, #ffd166, #f77f00);
-      color: #fff; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 800;
+      color: #fff; padding: 1px 5px; border-radius: 6px; font-size: 9.5px; font-weight: 800;
     }
     .mtx-creator-bar {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      background: rgba(255,255,255,0.72); border: 1px solid rgba(255,255,255,0.95);
-      border-radius: 12px; padding: 6px 10px; margin-bottom: 8px;
+      background: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.95);
+      border-radius: 11px; padding: 6px 10px; margin-bottom: 8px;
     }
     .mtx-creator-info {
-      display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left;
+      display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; min-width: 0;
     }
     .mtx-creator-info img {
-      width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1.5px solid #fff;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 1.5px solid #fff; flex-shrink: 0;
     }
     .mtx-btn-follow {
       background: linear-gradient(180deg, #48cae4 0%, #0077b6 100%);
-      color: #fff; border: 1px solid #fff; border-radius: 14px;
+      color: #fff; border: 1px solid #fff; border-radius: 12px;
       padding: 4px 11px; font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
     }
     .mtx-btn-follow.following {
@@ -128,55 +173,55 @@
       display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center;
     }
     .mtx-act-btn {
-      background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(225,245,255,0.88) 100%);
-      border: 1px solid #b5e2fa; border-radius: 11px; padding: 5px 10px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(225,245,255,0.9) 100%);
+      border: 1px solid #b5e2fa; border-radius: 10px; padding: 5px 10px;
       font-size: 12px; font-weight: 700; color: #0a466b; cursor: pointer;
     }
     .mtx-act-btn.liked {
-      background: linear-gradient(180deg, #ff8fa3 0%, #e63946 100%);
+      background: linear-gradient(180deg, #ff758f 0%, #c9184a 100%);
       color: #fff; border-color: #fff;
     }
     .mtx-act-btn.saved {
-      background: linear-gradient(180deg, #ffd166 0%, #f4a261 100%);
+      background: linear-gradient(180deg, #ffb703 0%, #fb8500 100%);
       color: #fff; border-color: #fff;
     }
     .mtx-btn-hapus-card {
       background: linear-gradient(180deg, #ff6b6b, #c9184a);
-      color: #fff; border: 1px solid #fff; border-radius: 11px;
+      color: #fff; border: 1px solid #fff; border-radius: 10px;
       padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer;
     }
     .mtx-comment-box {
-      margin-top: 8px; background: rgba(255,255,255,0.82);
-      border: 1px solid #bce3fa; border-radius: 12px; padding: 8px 10px; text-align: left;
+      margin-top: 8px; background: rgba(255,255,255,0.88);
+      border: 1px solid #bce3fa; border-radius: 11px; padding: 8px 10px; text-align: left;
     }
     .mtx-comment-item {
-      display: flex; gap: 7px; align-items: flex-start;
-      padding: 5px 0; border-bottom: 1px solid rgba(142,202,230,0.4); font-size: 12px;
+      display: flex; gap: 8px; align-items: flex-start;
+      padding: 5px 0; border-bottom: 1px solid rgba(142,202,230,0.45); font-size: 12px;
     }
     .mtx-comment-item:last-child { border-bottom: none; }
     .mtx-comment-item img {
-      width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-top: 2px;
+      width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-top: 2px; flex-shrink: 0;
     }
     .mtx-channel-banner {
-      background: linear-gradient(135deg, rgba(240,250,255,0.92), rgba(205,238,255,0.88));
-      border: 1.5px solid #ffffff; border-radius: 18px; padding: 18px;
-      box-shadow: 0 8px 24px rgba(0, 65, 115, 0.18); margin-bottom: 16px; color: #093b5c;
+      background: linear-gradient(135deg, rgba(240,250,255,0.94), rgba(205,238,255,0.9));
+      border: 1.5px solid #ffffff; border-radius: 16px; padding: 16px;
+      box-shadow: 0 8px 24px rgba(0, 65, 115, 0.16); margin-bottom: 14px; color: #093b5c;
     }
     .mtx-stat-chip {
-      background: rgba(255,255,255,0.85); border: 1px solid #90e0ef;
-      border-radius: 12px; padding: 6px 12px; font-size: 12px; font-weight: 700;
+      background: rgba(255,255,255,0.88); border: 1px solid #90e0ef;
+      border-radius: 10px; padding: 5px 10px; font-size: 12px; font-weight: 700;
     }
 
-    /* Floating Dock khusus tampilan Shorts agar video tidak terjepit */
+    /* Dock Shorts: Posisi rapi di atas caption agar tidak bertabrakan */
     .mtx-shorts-dock {
       position: absolute;
-      right: 12px;
-      bottom: 76px;
+      right: 10px;
+      bottom: 116px;
       z-index: 25;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       pointer-events: auto;
     }
     .mtx-short-avatar-wrap {
@@ -185,12 +230,13 @@
       margin-bottom: 4px;
     }
     .mtx-short-avatar-wrap img {
-      width: 42px;
-      height: 42px;
+      width: 38px;
+      height: 38px;
       border-radius: 50%;
       object-fit: cover;
       border: 2px solid #ffffff;
-      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+      display: block;
     }
     .mtx-short-follow-badge {
       position: absolute;
@@ -200,45 +246,45 @@
       background: linear-gradient(180deg, #38b6ff, #0077b6);
       color: #fff;
       border: 1.5px solid #fff;
-      border-radius: 10px;
-      padding: 0 6px;
-      font-size: 10.5px;
+      border-radius: 8px;
+      padding: 0 5px;
+      font-size: 10px;
       font-weight: 800;
       cursor: pointer;
-      line-height: 15px;
+      line-height: 14px;
     }
     .mtx-short-follow-badge.following {
       background: #2ec4b6;
     }
     .mtx-short-pill-btn {
       width: 44px;
-      min-height: 44px;
-      border-radius: 16px;
-      border: 1.5px solid rgba(255, 255, 255, 0.9);
-      background: linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(195,235,255,0.75) 100%);
+      min-height: 40px;
+      border-radius: 13px;
+      border: 1.5px solid rgba(255, 255, 255, 0.92);
+      background: linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(195,235,255,0.82) 100%);
       backdrop-filter: blur(8px);
-      box-shadow: 0 4px 12px rgba(0, 30, 60, 0.35);
+      box-shadow: 0 3px 10px rgba(0, 30, 60, 0.35);
       color: #073759;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 4px 2px;
+      padding: 3px 2px;
       cursor: pointer;
-      font-size: 15px;
+      font-size: 12px;
       font-weight: 800;
-      line-height: 1.1;
+      line-height: 1.15;
     }
     .mtx-short-pill-btn span {
-      font-size: 10.5px;
-      margin-top: 2px;
+      font-size: 10px;
+      font-weight: 700;
     }
     .mtx-short-pill-btn.liked {
-      background: linear-gradient(180deg, #ff8fa3, #e63946);
+      background: linear-gradient(180deg, #ff758f, #c9184a);
       color: #fff;
     }
     .mtx-short-pill-btn.saved {
-      background: linear-gradient(180deg, #ffd166, #f4a261);
+      background: linear-gradient(180deg, #ffb703, #fb8500);
       color: #fff;
     }
     .mtx-short-pill-btn.del {
@@ -248,16 +294,84 @@
     .mtx-shorts-drawer {
       position: absolute;
       left: 10px;
-      right: 64px;
-      bottom: 14px;
-      z-index: 30;
-      background: linear-gradient(180deg, rgba(245,252,255,0.96), rgba(215,240,255,0.95));
+      right: 62px;
+      bottom: 54px;
+      z-index: 35;
+      background: linear-gradient(180deg, rgba(245,252,255,0.97), rgba(215,240,255,0.96));
       border: 1.5px solid #ffffff;
-      border-radius: 16px;
+      border-radius: 14px;
       padding: 10px;
-      box-shadow: 0 10px 26px rgba(0, 25, 55, 0.45);
+      box-shadow: 0 10px 26px rgba(0, 25, 55, 0.5);
       color: #093b5c;
       text-align: left;
+    }
+
+    /* Perbaikan Layout Khusus Layar HP */
+    @media (max-width: 640px) {
+      .aero-navbar {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: 10px 12px !important;
+      }
+      .brand-area {
+        justify-content: space-between !important;
+      }
+      .nav-actions {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        justify-content: flex-start !important;
+      }
+      .nav-actions .win7-btn,
+      .mtx-btn-kompres {
+        padding: 5px 9px !important;
+        font-size: 11.5px !important;
+        margin-right: 0 !important;
+      }
+      .aero-tabs {
+        display: flex !important;
+        overflow-x: auto !important;
+        white-space: nowrap !important;
+        justify-content: flex-start !important;
+        gap: 6px !important;
+        padding: 6px 10px !important;
+        -webkit-overflow-scrolling: touch;
+      }
+      .aero-tabs::-webkit-scrollbar {
+        display: none;
+      }
+      .aero-tabs .tab-btn {
+        flex: 0 0 auto !important;
+        padding: 6px 12px !important;
+        font-size: 12px !important;
+      }
+      .main-container {
+        padding: 10px 8px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+      }
+      .form-row {
+        flex-direction: column !important;
+        gap: 8px !important;
+      }
+      .mtx-shorts-dock {
+        right: 8px;
+        bottom: 112px;
+        gap: 6px;
+      }
+      .mtx-short-pill-btn {
+        width: 40px;
+        min-height: 36px;
+        border-radius: 11px;
+        font-size: 11px;
+      }
+      .mtx-shorts-drawer {
+        left: 8px;
+        right: 54px;
+        bottom: 50px;
+      }
     }
   `;
   document.head.appendChild(style);
@@ -267,7 +381,7 @@
   gate.id = "mtx-auth-gate";
   gate.innerHTML = `
     <div class="mtx-auth-card">
-      <h2 style="margin:0 0 4px; font-size:21px;">MiniTube X</h2>
+      <h2 style="margin:0 0 4px; font-size:20px;">MiniTube X</h2>
       <p style="margin:0 0 14px; font-size:12.5px; color:#1d5b79;">
         Masuk dengan Google atau Email untuk membuat Channel & berinteraksi.
       </p>
@@ -277,7 +391,7 @@
           Masuk Cepat dengan Google
         </button>
 
-        <div style="font-size:11.5px; color:#4a7c9b; margin:8px 0;">— atau pakai email apapun —</div>
+        <div style="font-size:11.5px; color:#4a7c9b; margin:8px 0;">atau pakai email apapun</div>
 
         <input type="text" id="mtx-reg-nama" class="mtx-auth-input" placeholder="Nama Channel kamu (khusus daftar baru)" style="display:none;">
         <input type="email" id="mtx-auth-email" class="mtx-auth-input" placeholder="Alamat email kamu (contoh: nama@gmail.com)">
@@ -409,7 +523,7 @@
     return userAktif && userAktif.email && userAktif.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   }
 
-  // 3. Tambahkan Tab "Disimpan" dan "Channel Saya"
+  // 3. Tambahkan Tab "Disimpan" dan "Channel"
   function pasangTabSosial() {
     const navTabs = document.querySelector(".aero-tabs");
     const mainEl  = document.querySelector(".main-container");
@@ -419,8 +533,11 @@
       const btnSaved = document.createElement("button");
       btnSaved.className = "tab-btn";
       btnSaved.id = "tab-saved";
-      btnSaved.textContent = "🔖 Disimpan";
-      btnSaved.onclick = () => bukaTabKhusus("saved");
+      btnSaved.textContent = "Disimpan";
+      btnSaved.onclick = () => {
+        komenTerbuka.clear();
+        bukaTabKhusus("saved");
+      };
       navTabs.appendChild(btnSaved);
     }
 
@@ -428,8 +545,9 @@
       const btnCh = document.createElement("button");
       btnCh.className = "tab-btn";
       btnCh.id = "tab-channel";
-      btnCh.textContent = "👤 Channel Saya";
+      btnCh.textContent = "Channel";
       btnCh.onclick = () => {
+        komenTerbuka.clear();
         channelSedangDilihat = userAktif ? userAktif.email.toLowerCase() : null;
         bukaTabKhusus("channel");
       };
@@ -474,6 +592,7 @@
     const btn = e.target.closest(".tab-btn");
     if (!btn) return;
     if (["tab-feed", "tab-video", "tab-short"].includes(btn.id)) {
+      komenTerbuka.clear();
       document.getElementById("view-saved")?.classList.add("hidden");
       document.getElementById("view-channel")?.classList.add("hidden");
       document.getElementById("tab-saved")?.classList.remove("active");
@@ -500,8 +619,9 @@
     const pill = document.createElement("span");
     pill.className = "mtx-user-pill";
     pill.title = "Buka Channel Saya";
-    pill.innerHTML = `<img src="${resolveAvatarUrl(p.foto, p.nama)}"> <span>${esc(p.nama)}</span> ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}`;
+    pill.innerHTML = `<img src="${resolveAvatarUrl(p.foto, p.nama)}" data-fallback-nama="${esc(p.nama)}"> <span>${esc(p.nama)}</span> ${isAdmin() ? '<span class="mtx-admin-tag">ADMIN</span>' : ""}`;
     pill.onclick = () => {
+      komenTerbuka.clear();
       channelSedangDilihat = p.email;
       bukaTabKhusus("channel");
     };
@@ -591,10 +711,12 @@
       response.clone().json().then((data) => {
         if (Array.isArray(data)) {
           daftarPostCache = data;
-          setTimeout(() => {
-            pasangKontrolSemua(true);
-            updatePemutarUtamaSocial(true);
-          }, 120);
+          if (!sedangSibukKomentar()) {
+            setTimeout(() => {
+              pasangKontrolSemua(true);
+              updatePemutarUtamaSocial(true);
+            }, 120);
+          }
         }
       }).catch(() => {});
     }
@@ -640,7 +762,6 @@
     } catch (e) {}
   }
 
-  // Pencocok kartu DOM dengan data post (mendukung HTML encoded & semua tag container)
   function cariPostUntukElemen(el, filterTipe) {
     if (!el || !daftarPostCache.length) return null;
     const rawHtml = el.innerHTML || "";
@@ -651,18 +772,16 @@
       ? daftarPostCache.filter((p) => (p.tipe || "feed") === filterTipe)
       : daftarPostCache;
 
-    // 1. Cocokkan berdasarkan nama file media
     let ketemu = kandidatList.find((p) => p.file && (rawHtml.includes(p.file) || decHtml.includes(p.file)));
     if (ketemu) return ketemu;
 
-    // 2. Cocokkan berdasarkan penulis + caption (untuk postingan teks tanpa file)
     ketemu = kandidatList.find((p) => {
       const penulisNorm = normText(p.penulis);
       const teksNorm = normText(p.teks);
       if (penulisNorm && teksNorm) {
         return txtNorm.includes(penulisNorm) && txtNorm.includes(teksNorm.slice(0, 30));
       }
-      if (teksNorm && teksNorm.length >= 4) {
+      if (teksNorm && teksNorm.length >= 3) {
         return txtNorm.includes(teksNorm);
       }
       return false;
@@ -678,20 +797,20 @@
 
     const headerHtml = isShortsOverlay
       ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;font-weight:700;">
-           <span>💬 Komentar (${comments.length})</span>
-           <button type="button" class="mtx-close-short-komen" style="border:none;background:rgba(255,255,255,0.85);border-radius:50%;width:22px;height:22px;cursor:pointer;font-weight:bold;">✕</button>
+           <span>Komentar (${comments.length})</span>
+           <button type="button" class="mtx-close-short-komen" style="border:none;background:rgba(255,255,255,0.85);border-radius:50%;width:22px;height:22px;cursor:pointer;font-weight:bold;">x</button>
          </div>`
       : "";
 
     const listKomenHtml = comments.length === 0
-      ? `<div style="font-size:11.5px;color:#5c7a89;margin-bottom:6px;">Belum ada komentar. Jadilah yang pertama!</div>`
+      ? `<div style="font-size:11.5px;color:#5c7a89;margin-bottom:6px;">Belum ada komentar.</div>`
       : comments.map((c) => {
           const cProf = daftarChannelCache.find((u) => u.email === (c.email || "").toLowerCase());
           const cNama = cProf ? cProf.nama : c.nama;
           const cFoto = cProf ? cProf.foto : c.foto;
           return `
             <div class="mtx-comment-item">
-              <img src="${resolveAvatarUrl(cFoto, cNama)}">
+              <img src="${resolveAvatarUrl(cFoto, cNama)}" data-fallback-nama="${esc(cNama)}">
               <div>
                 <strong style="color:#083d63;">${esc(cNama)}</strong><br>
                 <span style="color:#1b3b4d;">${esc(c.teks)}</span>
@@ -702,7 +821,7 @@
 
     box.innerHTML = `
       ${headerHtml}
-      <div style="max-height:145px;overflow-y:auto;margin-bottom:6px;">${listKomenHtml}</div>
+      <div style="max-height:140px;overflow-y:auto;margin-bottom:6px;">${listKomenHtml}</div>
       <div style="display:flex;gap:6px;">
         <input type="text" class="aero-input mtx-input-komen" placeholder="Tulis komentar..." maxlength="280" style="margin:0;padding:6px 10px;font-size:12px;">
         <button type="button" class="win7-btn win7-btn-primary mtx-send-komen" style="padding:5px 12px;font-size:12px;">Kirim</button>
@@ -720,8 +839,10 @@
     const inp = box.querySelector(".mtx-input-komen");
     inp.value = drafKomen[post.id] || "";
     inp.oninput = () => { drafKomen[post.id] = inp.value; };
+    inp.onclick = (e) => e.stopPropagation();
 
-    const kirimHandler = async () => {
+    const kirimHandler = async (e) => {
+      if (e) e.stopPropagation();
       const isi = inp.value.trim();
       if (!isi) return;
       drafKomen[post.id] = "";
@@ -732,7 +853,7 @@
 
     box.querySelector(".mtx-send-komen").onclick = kirimHandler;
     inp.onkeydown = (ev) => {
-      if (ev.key === "Enter") kirimHandler();
+      if (ev.key === "Enter") kirimHandler(ev);
     };
 
     return box;
@@ -769,7 +890,7 @@
       topBar.className = "mtx-creator-bar";
       topBar.innerHTML = `
         <div class="mtx-creator-info" title="Lihat Channel ${esc(chNama)}">
-          <img src="${resolveAvatarUrl(chFoto, chNama)}">
+          <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">
           <div>
             <div style="font-size:12.5px;font-weight:700;color:#083d63;">${esc(chNama)}</div>
             <div style="font-size:11px;color:#3d6e8c;">${chFollowers.length} Pengikut</div>
@@ -779,6 +900,7 @@
       topBar.querySelector(".mtx-creator-info").onclick = (e) => {
         e.stopPropagation();
         if (post.email) {
+          komenTerbuka.clear();
           channelSedangDilihat = post.email.toLowerCase();
           bukaTabKhusus("channel");
         }
@@ -788,7 +910,7 @@
         const btnFollow = document.createElement("button");
         btnFollow.type = "button";
         btnFollow.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
-        btnFollow.textContent = sudahFollow ? "✓ Mengikuti" : "+ Ikuti";
+        btnFollow.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti";
         btnFollow.onclick = async (e) => {
           e.stopPropagation();
           if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
@@ -813,7 +935,7 @@
       const btnLike = document.createElement("button");
       btnLike.type = "button";
       btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
-      btnLike.textContent = `${sudahLike ? "❤️" : "🤍"} Suka (${likes.length})`;
+      btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
       btnLike.onclick = async (e) => {
         e.stopPropagation();
         if (await kirimAksiApi("/api/like", { id: post.id })) {
@@ -825,7 +947,7 @@
       const btnKomen = document.createElement("button");
       btnKomen.type = "button";
       btnKomen.className = "mtx-act-btn";
-      btnKomen.textContent = `💬 Komentar (${comments.length})`;
+      btnKomen.textContent = `Komentar (${comments.length})`;
       btnKomen.onclick = (e) => {
         e.stopPropagation();
         if (komenTerbuka.has(post.id)) {
@@ -840,7 +962,7 @@
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
-      btnSave.textContent = sudahSave ? "✅ Tersimpan" : "🔖 Simpan";
+      btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan";
       btnSave.onclick = async (e) => {
         e.stopPropagation();
         if (await kirimAksiApi("/api/save", { id: post.id })) {
@@ -853,7 +975,7 @@
         const btnHapus = document.createElement("button");
         btnHapus.type = "button";
         btnHapus.className = "mtx-btn-hapus-card";
-        btnHapus.textContent = "🗑 Hapus";
+        btnHapus.textContent = "Hapus";
         btnHapus.onclick = async (e) => {
           e.stopPropagation();
           if (!confirm(`Hapus permanen postingan dari ${chNama}?`)) return;
@@ -872,7 +994,7 @@
     });
   }
 
-  // 7B. Pasang Floating Dock khusus Shorts agar video tidak terjepit
+  // 7B. Pasang Floating Dock khusus Shorts
   function pasangKartuShorts(paksaUpdate) {
     const wadah = document.getElementById("wadahShorts");
     if (!wadah || !userAktif || !daftarPostCache.length) return;
@@ -911,14 +1033,14 @@
       const dock = document.createElement("div");
       dock.className = "mtx-shorts-dock";
 
-      // Avatar + Follow Mini Badge
       const avWrap = document.createElement("div");
       avWrap.className = "mtx-short-avatar-wrap";
       avWrap.title = `Channel ${chNama}`;
-      avWrap.innerHTML = `<img src="${resolveAvatarUrl(chFoto, chNama)}">`;
+      avWrap.innerHTML = `<img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}">`;
       avWrap.onclick = (e) => {
         e.stopPropagation();
         if (post.email) {
+          komenTerbuka.clear();
           channelSedangDilihat = post.email.toLowerCase();
           bukaTabKhusus("channel");
         }
@@ -938,11 +1060,10 @@
       }
       dock.appendChild(avWrap);
 
-      // Like Button
       const btnLike = document.createElement("button");
       btnLike.type = "button";
       btnLike.className = "mtx-short-pill-btn" + (sudahLike ? " liked" : "");
-      btnLike.innerHTML = `${sudahLike ? "❤️" : "🤍"}<span>${likes.length}</span>`;
+      btnLike.innerHTML = `${sudahLike ? "♥" : "♡"}<span>${likes.length}</span>`;
       btnLike.onclick = async (e) => {
         e.stopPropagation();
         if (await kirimAksiApi("/api/like", { id: post.id })) {
@@ -951,11 +1072,10 @@
       };
       dock.appendChild(btnLike);
 
-      // Comment Button
       const btnKomen = document.createElement("button");
       btnKomen.type = "button";
       btnKomen.className = "mtx-short-pill-btn";
-      btnKomen.innerHTML = `💬<span>${comments.length}</span>`;
+      btnKomen.innerHTML = `Chat<span>${comments.length}</span>`;
       btnKomen.onclick = (e) => {
         e.stopPropagation();
         if (komenTerbuka.has(post.id)) {
@@ -967,11 +1087,10 @@
       };
       dock.appendChild(btnKomen);
 
-      // Save Button
       const btnSave = document.createElement("button");
       btnSave.type = "button";
       btnSave.className = "mtx-short-pill-btn" + (sudahSave ? " saved" : "");
-      btnSave.innerHTML = `${sudahSave ? "✅" : "🔖"}<span>Simpan</span>`;
+      btnSave.innerHTML = `<span>${sudahSave ? "Disimpan" : "Simpan"}</span>`;
       btnSave.onclick = async (e) => {
         e.stopPropagation();
         if (await kirimAksiApi("/api/save", { id: post.id })) {
@@ -980,12 +1099,11 @@
       };
       dock.appendChild(btnSave);
 
-      // Admin Delete Button
       if (isAdmin()) {
         const btnDel = document.createElement("button");
         btnDel.type = "button";
         btnDel.className = "mtx-short-pill-btn del";
-        btnDel.innerHTML = `🗑<span>Hapus</span>`;
+        btnDel.innerHTML = `<span>Hapus</span>`;
         btnDel.onclick = async (e) => {
           e.stopPropagation();
           if (!confirm(`Hapus permanen Shorts dari ${chNama}?`)) return;
@@ -1010,7 +1128,7 @@
     pasangKartuShorts(paksaUpdate);
   }
 
-  // 7C. Pasang Like, Follow, Simpan, & Komentar di Pemutar Video Utama (#boxPemutarUtama)
+  // 7C. Pemutar Video Utama (#boxPemutarUtama)
   let lastPlayerPostId = "";
   function updatePemutarUtamaSocial(paksaUpdate) {
     const box = document.getElementById("boxPemutarUtama");
@@ -1060,20 +1178,20 @@
     const sudahFollow = chFollowers.includes(myEmail);
     const bukanMilikSendiri = post.email && post.email.toLowerCase() !== myEmail;
 
-    // Bar Channel Kreator
     const topBar = document.createElement("div");
     topBar.className = "mtx-creator-bar";
     topBar.innerHTML = `
       <div class="mtx-creator-info" title="Lihat Channel ${esc(chNama)}">
-        <img src="${resolveAvatarUrl(chFoto, chNama)}" style="width:38px;height:38px;">
+        <img src="${resolveAvatarUrl(chFoto, chNama)}" data-fallback-nama="${esc(chNama)}" style="width:36px;height:36px;">
         <div>
-          <div style="font-size:13.5px;font-weight:800;color:#083d63;">${esc(chNama)}</div>
-          <div style="font-size:11.5px;color:#3d6e8c;">${chFollowers.length} Pengikut</div>
+          <div style="font-size:13px;font-weight:800;color:#083d63;">${esc(chNama)}</div>
+          <div style="font-size:11px;color:#3d6e8c;">${chFollowers.length} Pengikut</div>
         </div>
       </div>
     `;
     topBar.querySelector(".mtx-creator-info").onclick = () => {
       if (post.email) {
+        komenTerbuka.clear();
         channelSedangDilihat = post.email.toLowerCase();
         bukaTabKhusus("channel");
       }
@@ -1082,9 +1200,9 @@
       const btnFollow = document.createElement("button");
       btnFollow.type = "button";
       btnFollow.className = "mtx-btn-follow" + (sudahFollow ? " following" : "");
-      btnFollow.style.padding = "6px 14px";
-      btnFollow.style.fontSize = "12.5px";
-      btnFollow.textContent = sudahFollow ? "✓ Mengikuti" : "+ Ikuti Channel";
+      btnFollow.style.padding = "5px 13px";
+      btnFollow.style.fontSize = "12px";
+      btnFollow.textContent = sudahFollow ? "Mengikuti" : "+ Ikuti Channel";
       btnFollow.onclick = async () => {
         if (await kirimAksiApi("/api/follow", { targetEmail: post.email })) {
           await segarkanSosial();
@@ -1094,7 +1212,6 @@
     }
     wadah.appendChild(topBar);
 
-    // Bar Suka, Simpan, Hapus Admin
     const likes = Array.isArray(post.likes) ? post.likes : [];
     const comments = Array.isArray(post.comments) ? post.comments : [];
     const sudahLike = likes.includes(myEmail);
@@ -1106,7 +1223,7 @@
     const btnLike = document.createElement("button");
     btnLike.type = "button";
     btnLike.className = "mtx-act-btn" + (sudahLike ? " liked" : "");
-    btnLike.textContent = `${sudahLike ? "❤️" : "🤍"} Suka (${likes.length})`;
+    btnLike.textContent = `${sudahLike ? "♥" : "♡"} Suka (${likes.length})`;
     btnLike.onclick = async () => {
       if (await kirimAksiApi("/api/like", { id: post.id })) {
         await segarkanSosial();
@@ -1117,7 +1234,7 @@
     const btnSave = document.createElement("button");
     btnSave.type = "button";
     btnSave.className = "mtx-act-btn" + (sudahSave ? " saved" : "");
-    btnSave.textContent = sudahSave ? "✅ Tersimpan" : "🔖 Simpan Video";
+    btnSave.textContent = sudahSave ? "Tersimpan" : "Simpan Video";
     btnSave.onclick = async () => {
       if (await kirimAksiApi("/api/save", { id: post.id })) {
         await segarkanSosial();
@@ -1129,7 +1246,7 @@
       const btnHapus = document.createElement("button");
       btnHapus.type = "button";
       btnHapus.className = "mtx-btn-hapus-card";
-      btnHapus.textContent = "🗑 Hapus Video (Admin)";
+      btnHapus.textContent = "Hapus Video";
       btnHapus.onclick = async () => {
         if (!confirm(`Hapus permanen video dari ${chNama}?`)) return;
         if (await kirimAksiApi("/api/delete", { id: post.id })) {
@@ -1142,15 +1259,13 @@
     }
     wadah.appendChild(bar);
 
-    // Kolom Komentar langsung terbuka di bawah pemutar video panjang
     const labelKomen = document.createElement("div");
-    labelKomen.style.cssText = "font-size:12.5px;font-weight:700;color:#083d63;margin-top:10px;";
-    labelKomen.textContent = `💬 Komentar (${comments.length})`;
+    labelKomen.style.cssText = "font-size:12px;font-weight:700;color:#083d63;margin-top:10px;";
+    labelKomen.textContent = `Komentar (${comments.length})`;
     wadah.appendChild(labelKomen);
     wadah.appendChild(buatDrawerKomentar(post, false));
   }
 
-  // Pantau klik pada gridVideo maupun perubahan src videoPemutarUtama secara instan
   document.addEventListener("click", (e) => {
     if (e.target.closest("#gridVideo")) {
       setTimeout(() => updatePemutarUtamaSocial(true), 80);
@@ -1162,8 +1277,7 @@
   }
 
   setInterval(() => {
-    const sedangKetik = document.activeElement && document.activeElement.classList.contains("mtx-input-komen");
-    if (!sedangKetik) {
+    if (!sedangSibukKomentar()) {
       pasangKontrolSemua(false);
       updatePemutarUtamaSocial(false);
     }
@@ -1194,11 +1308,11 @@
     const serverUrl = getServerUrl();
 
     const tombolAksiHeader = adalahMilikku
-      ? `<button type="button" id="mtx-btn-edit-profil" class="win7-btn win7-btn-primary">✏️ Edit Channel & Foto Profil</button>`
-      : `<button type="button" id="mtx-btn-follow-ch" class="mtx-btn-follow ${sudahFollow ? "following" : ""}" style="padding:7px 16px;font-size:13px;">${sudahFollow ? "✓ Mengikuti" : "+ Ikuti Channel"}</button>`;
+      ? `<button type="button" id="mtx-btn-edit-profil" class="win7-btn win7-btn-primary">Edit Channel</button>`
+      : `<button type="button" id="mtx-btn-follow-ch" class="mtx-btn-follow ${sudahFollow ? "following" : ""}" style="padding:6px 14px;font-size:12.5px;">${sudahFollow ? "Mengikuti" : "+ Ikuti Channel"}</button>`;
 
     const kartuPostHtml = postinganCh.length === 0
-      ? `<div class="mtx-channel-banner" style="text-align:center;">Belum ada video atau postingan di channel ini.</div>`
+      ? `<div class="mtx-channel-banner" style="text-align:center;">Belum ada postingan di channel ini.</div>`
       : postinganCh.map((p) => {
           const mediaUrl = p.file && serverUrl ? `${serverUrl}/media/${encodeURIComponent(p.file)}` : "";
           const mediaTag = p.jenisMedia === "video" && mediaUrl
@@ -1208,7 +1322,7 @@
               : "");
           return `
             <div class="mtx-channel-banner" style="padding:14px;">
-              <div style="font-size:11.5px;color:#0077b6;font-weight:700;">[${(p.tipe || "feed").toUpperCase()}] • ❤️ ${(p.likes || []).length} Suka • 💬 ${(p.comments || []).length} Komentar</div>
+              <div style="font-size:11.5px;color:#0077b6;font-weight:700;">[${(p.tipe || "feed").toUpperCase()}] • ${(p.likes || []).length} Suka • ${(p.comments || []).length} Komentar</div>
               <div style="font-size:13.5px;margin-top:4px;">${esc(p.teks || "(Tanpa caption)")}</div>
               ${mediaTag}
             </div>
@@ -1217,23 +1331,23 @@
 
     wadah.innerHTML = `
       <div class="mtx-channel-banner">
-        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;">
-          <div style="display:flex;align-items:center;gap:14px;">
-            <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" style="width:76px;height:76px;border-radius:50%;object-fit:cover;border:2.5px solid #fff;box-shadow:0 4px 12px rgba(0,65,115,0.25);">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <img src="${resolveAvatarUrl(ch.foto, ch.nama)}" data-fallback-nama="${esc(ch.nama)}" style="width:68px;height:68px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 4px 12px rgba(0,65,115,0.25);">
             <div>
-              <h2 style="margin:0;font-size:20px;">${esc(ch.nama)}</h2>
+              <h2 style="margin:0;font-size:18px;">${esc(ch.nama)}</h2>
               <div style="font-size:12px;color:#2b678a;">${esc(ch.email)}</div>
-              <p style="margin:6px 0 0;font-size:13px;color:#0b3c5d;">${esc(ch.bio || "Belum ada bio channel.")}</p>
+              <p style="margin:5px 0 0;font-size:12.5px;color:#0b3c5d;">${esc(ch.bio || "Belum ada bio channel.")}</p>
             </div>
           </div>
           <div>${tombolAksiHeader}</div>
         </div>
 
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
-          <span class="mtx-stat-chip">👥 ${followers.length} Pengikut</span>
-          <span class="mtx-stat-chip">➕ ${followingCount} Mengikuti</span>
-          <span class="mtx-stat-chip">🎬 ${postinganCh.length} Postingan</span>
-          <span class="mtx-stat-chip">❤️ ${totalSuka} Total Suka</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;">
+          <span class="mtx-stat-chip">${followers.length} Pengikut</span>
+          <span class="mtx-stat-chip">${followingCount} Mengikuti</span>
+          <span class="mtx-stat-chip">${postinganCh.length} Postingan</span>
+          <span class="mtx-stat-chip">${totalSuka} Suka</span>
         </div>
 
         <div id="mtx-form-edit-profil" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #90e0ef;">
@@ -1347,7 +1461,7 @@
     const serverUrl = getServerUrl();
 
     if (daftarTersimpan.length === 0) {
-      wadah.innerHTML = `<div class="mtx-channel-banner" style="text-align:center;">Belum ada video atau postingan yang kamu simpan. Klik tombol <strong>🔖 Simpan</strong> pada postingan mana saja!</div>`;
+      wadah.innerHTML = `<div class="mtx-channel-banner" style="text-align:center;">Belum ada postingan yang kamu simpan. Klik tombol <strong>Simpan</strong> pada postingan mana saja.</div>`;
       return;
     }
 
@@ -1362,7 +1476,7 @@
         <div class="mtx-channel-banner" style="padding:14px;">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
             <strong style="font-size:13px;color:#083d63;">${esc(p.channelNama || p.penulis)}</strong>
-            <button type="button" data-unsave-id="${p.id}" class="mtx-act-btn saved">🗑 Hapus dari Simpanan</button>
+            <button type="button" data-unsave-id="${p.id}" class="mtx-act-btn saved">Hapus Simpanan</button>
           </div>
           <div style="font-size:13.5px;margin-top:6px;">${esc(p.teks || "(Tanpa caption)")}</div>
           ${mediaTag}
