@@ -24,7 +24,7 @@
   const drafKomen = {};
   const targetBalasKomen = {};
 
-  // State Pencarian, Algoritma, Tema, Bahasa, & Shared Post
+  // State Pencarian, Algoritma, Tema, Bahasa, & Onboarding Gate
   let kataKunciCari = "";
   let filterCari = "semua";
   let urutCari = "algoritma";
@@ -32,6 +32,8 @@
   let temaAktif = localStorage.getItem("mtx_theme") || "aero";
   let bahasaAktif = localStorage.getItem("mtx_lang") || "id";
   let cariBahasaQuery = "";
+  let gateLangQuery = "";
+  let gateStep = "lang"; // "lang" -> "login" -> "verif" -> "theme"
   let sharedPostHandled = false;
 
   // Daftar 6 Tema MiniTube X
@@ -212,61 +214,151 @@
 
   const RTL_LANGS = new Set(["ar", "iw", "he", "fa", "ur", "ps", "sd", "ug", "yi", "dv"]);
 
-  // Kamus Instan UI Inti (Bekerja langsung bahkan saat offline)
+  // Kamus Instan UI Inti + Alur Onboarding
   const KAMUS_UI = {
     id: {
       search: "Cari", notif: "Notifikasi", saved: "Disimpan", channel: "Channel", settings: "Pengaturan",
       logout: "Keluar", forYou: "Untuk Kamu", following: "Mengikuti", latest: "Terbaru", blocked: "Diblokir",
       like: "Suka", comment: "Komentar", share: "Bagikan", save: "Simpan", savedDone: "Tersimpan",
-      blockSimilar: "Blokir Serupa", follow: "+ Ikuti", followingBtn: "Mengikuti"
+      blockSimilar: "Blokir Serupa", follow: "+ Ikuti", followingBtn: "Mengikuti",
+      step1Badge: "1. Bahasa", step2Badge: "2. Login / Daftar", step3Badge: "3. Tema",
+      step1Title: "Pilih Bahasa Terlebih Dahulu",
+      step1Sub: "Pilih bahasa yang ingin kamu pakai sebelum masuk atau mendaftar akun.",
+      nextToLogin: "Lanjut ke Login / Daftar →",
+      changeLang: "Ganti Bahasa",
+      step2Title: "Masuk atau Daftar Akun",
+      step2Sub: "Gunakan Google atau Email untuk membuat Channel & mulai menjelajah.",
+      step3Title: "Pilih Tema Tampilan",
+      step3Sub: "Klik salah satu tema di bawah untuk pratinjau langsung, lalu masuk ke halaman utama.",
+      enterHome: "Masuk ke Halaman Utama →"
     },
     en: {
       search: "Search", notif: "Notifications", saved: "Saved", channel: "Channel", settings: "Settings",
       logout: "Log Out", forYou: "For You", following: "Following", latest: "Latest", blocked: "Blocked",
       like: "Like", comment: "Comment", share: "Share", save: "Save", savedDone: "Saved",
-      blockSimilar: "Block Similar", follow: "+ Follow", followingBtn: "Following"
+      blockSimilar: "Block Similar", follow: "+ Follow", followingBtn: "Following",
+      step1Badge: "1. Language", step2Badge: "2. Sign In / Sign Up", step3Badge: "3. Theme",
+      step1Title: "Choose Your Language First",
+      step1Sub: "Select your preferred language before signing in or creating an account.",
+      nextToLogin: "Continue to Login / Sign Up →",
+      changeLang: "Change Language",
+      step2Title: "Sign In or Create Account",
+      step2Sub: "Use Google or Email to set up your Channel and join MiniTube X.",
+      step3Title: "Choose Your Theme",
+      step3Sub: "Click any theme below for a live preview, then enter the main page.",
+      enterHome: "Enter Main Page →"
     },
     jv: {
       search: "Golek", notif: "Kabar", saved: "Disimpen", channel: "Channel", settings: "Setelan",
       logout: "Metu", forYou: "Kanggo Sampeyan", following: "Ngetutake", latest: "Anyar", blocked: "Diblokir",
       like: "Seneng", comment: "Komentar", share: "Bagi", save: "Simpen", savedDone: "Kesimpen",
-      blockSimilar: "Blokir Sing Padha", follow: "+ Melu", followingBtn: "Melu"
+      blockSimilar: "Blokir Sing Padha", follow: "+ Melu", followingBtn: "Melu",
+      step1Badge: "1. Basa", step2Badge: "2. Mlebu / Daftar", step3Badge: "3. Tema",
+      step1Title: "Pilih Basa Dhisik",
+      step1Sub: "Pilih basa sing arep dienggo sadurunge mlebu utawa daftar akun.",
+      nextToLogin: "Terusake menyang Login / Daftar →",
+      changeLang: "Ganti Basa",
+      step2Title: "Mlebu utawa Daftar Akun",
+      step2Sub: "Nganggo Google utawa Email kanggo nggawe Channel.",
+      step3Title: "Pilih Tema Tampilan",
+      step3Sub: "Klik tema ing ngisor iki kanggo ndeleng langsung, banjur mlebu kaca utama.",
+      enterHome: "Mlebu Kaca Utama →"
     },
     su: {
       search: "Teang", notif: "Bewara", saved: "Disimpen", channel: "Channel", settings: "Setelan",
       logout: "Kaluar", forYou: "Keur Anjeun", following: "Nuturkeun", latest: "Anyar", blocked: "Diblokir",
       like: "Resep", comment: "Koméntar", share: "Bagikeun", save: "Simpen", savedDone: "Kasimpen",
-      blockSimilar: "Blokir Nu Sarua", follow: "+ Tuturkeun", followingBtn: "Nuturkeun"
+      blockSimilar: "Blokir Nu Sarua", follow: "+ Tuturkeun", followingBtn: "Nuturkeun",
+      step1Badge: "1. Basa", step2Badge: "2. Asup / Daptar", step3Badge: "3. Téma",
+      step1Title: "Pilih Basa Heula",
+      step1Sub: "Pilih basa anu hoyong dianggo sateuacan asup atanapi daptar akun.",
+      nextToLogin: "Lanjut ka Login / Daptar →",
+      changeLang: "Ganti Basa",
+      step2Title: "Asup atanapi Daptar Akun",
+      step2Sub: "Anggo Google atanapi Email kanggo ngadamel Channel.",
+      step3Title: "Pilih Téma Tampilan",
+      step3Sub: "Klik téma di handap pikeun ningali langsung, teras lebet ka kaca utama.",
+      enterHome: "Lebet ka Kaca Utama →"
     },
     ja: {
       search: "検索", notif: "通知", saved: "保存済み", channel: "チャンネル", settings: "設定",
       logout: "ログアウト", forYou: "おすすめ", following: "フォロー中", latest: "最新", blocked: "ブロック中",
       like: "いいね", comment: "コメント", share: "共有", save: "保存", savedDone: "保存済み",
-      blockSimilar: "類似をブロック", follow: "+ フォロー", followingBtn: "フォロー中"
+      blockSimilar: "類似をブロック", follow: "+ フォロー", followingBtn: "フォロー中",
+      step1Badge: "1. 言語", step2Badge: "2. ログイン/登録", step3Badge: "3. テーマ",
+      step1Title: "最初に言語を選択してください",
+      step1Sub: "ログインまたはアカウント登録の前に使用する言語を選択します。",
+      nextToLogin: "ログイン / 登録へ進む →",
+      changeLang: "言語を変更",
+      step2Title: "ログインまたは新規登録",
+      step2Sub: "Googleまたはメールでチャンネルを作成しましょう。",
+      step3Title: "テーマを選択",
+      step3Sub: "下のテーマをクリックしてプレビューし、メインページへ進みます。",
+      enterHome: "メインページへ入る →"
     },
     ko: {
       search: "검색", notif: "알림", saved: "저장됨", channel: "채널", settings: "설정",
       logout: "로그아웃", forYou: "추천", following: "팔로잉", latest: "최신", blocked: "차단됨",
       like: "좋아요", comment: "댓글", share: "공유", save: "저장", savedDone: "저장됨",
-      blockSimilar: "유사 콘텐츠 차단", follow: "+ 팔로우", followingBtn: "팔로잉"
+      blockSimilar: "유사 콘텐츠 차단", follow: "+ 팔로우", followingBtn: "팔로잉",
+      step1Badge: "1. 언어", step2Badge: "2. 로그인/가입", step3Badge: "3. 테마",
+      step1Title: "먼저 언어를 선택하세요",
+      step1Sub: "로그인 또는 회원가입 전에 사용할 언어를 선택하세요.",
+      nextToLogin: "로그인 / 회원가입으로 이동 →",
+      changeLang: "언어 변경",
+      step2Title: "로그인 또는 계정 만들기",
+      step2Sub: "Google 또는 이메일로 채널을 만들어 보세요.",
+      step3Title: "테마 선택",
+      step3Sub: "아래 테마를 클릭해 미리 본 후 메인 페이지로 이동하세요.",
+      enterHome: "메인 페이지로 들어가기 →"
     },
     ar: {
       search: "بحث", notif: "الإشعارات", saved: "المحفوظات", channel: "القناة", settings: "الإعدادات",
       logout: "خروج", forYou: "لك", following: "أتابعهم", latest: "الأحدث", blocked: "محظور",
       like: "إعجاب", comment: "تعليق", share: "مشاركة", save: "حفظ", savedDone: "تم الحفظ",
-      blockSimilar: "حظر المشابه", follow: "+ متابعة", followingBtn: "متابَع"
+      blockSimilar: "حظر المشابه", follow: "+ متابعة", followingBtn: "متابَع",
+      step1Badge: "1. اللغة", step2Badge: "2. الدخول / التسجيل", step3Badge: "3. المظهر",
+      step1Title: "اختر اللغة أولاً",
+      step1Sub: "اختر لغتك المفضلة قبل تسجيل الدخول أو إنشاء حساب.",
+      nextToLogin: "المتابعة إلى تسجيل الدخول ←",
+      changeLang: "تغيير اللغة",
+      step2Title: "تسجيل الدخول أو إنشاء حساب",
+      step2Sub: "استخدم Google أو البريد الإلكتروني لإنشاء قناتك.",
+      step3Title: "اختر مظهر التطبيق",
+      step3Sub: "انقر على أي مظهر للمعاينة المباشرة ثم ادخل إلى الصفحة الرئيسية.",
+      enterHome: "الدخول إلى الصفحة الرئيسية ←"
     },
     ru: {
       search: "Поиск", notif: "Уведомления", saved: "Сохранённое", channel: "Канал", settings: "Настройки",
       logout: "Выйти", forYou: "Для вас", following: "Подписки", latest: "Новое", blocked: "Заблокировано",
       like: "Нравится", comment: "Комментарий", share: "Поделиться", save: "Сохранить", savedDone: "Сохранено",
-      blockSimilar: "Скрыть похожее", follow: "+ Подписаться", followingBtn: "Вы подписаны"
+      blockSimilar: "Скрыть похожее", follow: "+ Подписаться", followingBtn: "Вы подписаны",
+      step1Badge: "1. Язык", step2Badge: "2. Вход / Регистрация", step3Badge: "3. Тема",
+      step1Title: "Сначала выберите язык",
+      step1Sub: "Выберите язык интерфейса перед входом или регистрацией.",
+      nextToLogin: "Перейти ко входу / регистрации →",
+      changeLang: "Сменить язык",
+      step2Title: "Вход или регистрация",
+      step2Sub: "Используйте Google или Email для создания канала.",
+      step3Title: "Выберите тему оформления",
+      step3Sub: "Нажмите на тему для предпросмотра, затем перейдите на главную.",
+      enterHome: "Перейти на главную →"
     },
     es: {
       search: "Buscar", notif: "Notificaciones", saved: "Guardados", channel: "Canal", settings: "Ajustes",
       logout: "Salir", forYou: "Para ti", following: "Siguiendo", latest: "Recientes", blocked: "Bloqueados",
       like: "Me gusta", comment: "Comentar", share: "Compartir", save: "Guardar", savedDone: "Guardado",
-      blockSimilar: "Bloquear similar", follow: "+ Seguir", followingBtn: "Siguiendo"
+      blockSimilar: "Bloquear similar", follow: "+ Seguir", followingBtn: "Siguiendo",
+      step1Badge: "1. Idioma", step2Badge: "2. Entrar / Registro", step3Badge: "3. Tema",
+      step1Title: "Primero elige tu idioma",
+      step1Sub: "Selecciona tu idioma antes de iniciar sesión o registrarte.",
+      nextToLogin: "Continuar a Iniciar sesión / Registro →",
+      changeLang: "Cambiar idioma",
+      step2Title: "Iniciar sesión o crear cuenta",
+      step2Sub: "Usa Google o tu correo para crear tu canal.",
+      step3Title: "Elige el tema visual",
+      step3Sub: "Haz clic en un tema para previsualizarlo y entra a la página principal.",
+      enterHome: "Entrar a la página principal →"
     }
   };
 
@@ -347,6 +439,9 @@
     pasangInfoHeader();
     pasangBarAlgoritmaFeed();
     pasangKontrolSemua(true);
+    if (document.getElementById("mtx-auth-gate")?.style.display === "flex") {
+      renderGateStep();
+    }
 
     const combo = document.querySelector(".goog-te-combo");
     if (combo) {
@@ -780,14 +875,33 @@
       position: fixed; inset: 0; z-index: 10000;
       background: linear-gradient(135deg, rgba(12, 65, 110, 0.88), rgba(20, 125, 165, 0.85));
       backdrop-filter: blur(14px);
-      display: flex; align-items: center; justify-content: center; padding: 16px;
+      display: flex; align-items: center; justify-content: center; padding: 14px;
+      overflow-y: auto;
+    }
+    #mtx-auth-gate.theme-preview-mode {
+      background: rgba(8, 36, 66, 0.45);
+      backdrop-filter: blur(5px);
     }
     .mtx-auth-card {
-      width: 100%; max-width: 410px;
+      width: 100%; max-width: 470px; max-height: 92vh; overflow-y: auto;
       background: var(--mtx-card-bg);
-      border: 1.5px solid var(--mtx-border); border-radius: 18px; padding: 20px 22px;
+      border: 1.5px solid var(--mtx-border); border-radius: 18px; padding: 18px 20px;
       box-shadow: 0 14px 36px rgba(0, 35, 70, 0.45);
       color: var(--mtx-text-main); text-align: center;
+    }
+    .mtx-wizard-steps {
+      display: flex; justify-content: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .mtx-wizard-pill {
+      padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+      background: var(--mtx-surface); border: 1px solid var(--mtx-accent-border);
+      color: var(--mtx-text-sub); opacity: 0.75;
+    }
+    .mtx-wizard-pill.active {
+      background: var(--mtx-primary-bg); color: #ffffff; border-color: #ffffff; opacity: 1;
+    }
+    .mtx-wizard-pill.done {
+      background: #2ec4b6; color: #ffffff; border-color: #ffffff; opacity: 0.95;
     }
     .mtx-auth-input {
       width: 100%; box-sizing: border-box; padding: 9px 12px; margin-bottom: 10px;
@@ -805,6 +919,17 @@
       width: 100%; padding: 10px; border-radius: 11px; border: none;
       background: var(--mtx-primary-bg);
       color: #fff; font-weight: 700; font-size: 13.5px; cursor: pointer;
+    }
+    .mtx-gate-lang-box {
+      max-height: 220px; overflow-y: auto; display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+      gap: 6px; margin-bottom: 12px; padding: 6px;
+      background: rgba(128, 180, 210, 0.14); border-radius: 12px;
+      border: 1px solid var(--mtx-accent-border);
+    }
+    .mtx-gate-theme-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 8px; margin-bottom: 12px; max-height: 270px; overflow-y: auto; padding: 2px;
     }
     .mtx-user-pill {
       display: inline-flex; align-items: center; gap: 6px;
@@ -951,23 +1076,23 @@
       justify-content: space-between; gap: 10px; color: var(--mtx-text-main);
     }
 
-    /* Pengaturan / Settings Cards */
+    /* Pengaturan & Onboarding Theme/Language Cards */
     .mtx-theme-grid {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
       gap: 10px; margin-top: 10px;
     }
     .mtx-theme-card {
       background: var(--mtx-surface); border: 1.5px solid var(--mtx-accent-border);
-      border-radius: 13px; padding: 11px; cursor: pointer; text-align: left;
+      border-radius: 13px; padding: 10px; cursor: pointer; text-align: left;
       transition: transform 0.12s ease; color: var(--mtx-text-main);
     }
     .mtx-theme-card:hover { transform: translateY(-2px); }
     .mtx-theme-card.active {
       border: 2px solid #0096c7;
-      box-shadow: 0 0 0 2px rgba(0, 150, 199, 0.25);
+      box-shadow: 0 0 0 2px rgba(0, 150, 199, 0.28);
     }
     .mtx-theme-swatch {
-      height: 28px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.7);
+      height: 26px; border-radius: 8px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.7);
     }
     .mtx-lang-list {
       max-height: 230px; overflow-y: auto; display: grid;
@@ -1085,17 +1210,33 @@
   `;
   document.head.appendChild(style);
 
-  // 2. Layar Login Wajib
+  // 2. Onboarding Gate 3 Tahap:
+  //    Tahap 1: Pilih Bahasa -> Tahap 2: Login / Daftar Akun -> Tahap 3: Pilih Tema -> Halaman Utama
   const gate = document.createElement("div");
   gate.id = "mtx-auth-gate";
   gate.innerHTML = `
     <div class="mtx-auth-card">
-      <h2 style="margin:0 0 4px; font-size:20px;">MiniTube X</h2>
-      <p style="margin:0 0 14px; font-size:12.5px; opacity:0.85;">
-        Masuk dengan Google atau Email untuk membuat Channel & berinteraksi.
-      </p>
+      <h2 style="margin:0 0 8px; font-size:20px;">MiniTube X</h2>
+      <div class="mtx-wizard-steps" id="mtx-wizard-steps"></div>
 
-      <div id="mtx-form-login">
+      <!-- TAHAP 1: PILIH BAHASA DULU -->
+      <div id="mtx-gate-step-lang">
+        <div style="font-size:14.5px;font-weight:800;margin-bottom:3px;" id="mtx-s1-title"></div>
+        <p style="margin:0 0 10px;font-size:12px;opacity:0.85;" id="mtx-s1-sub"></p>
+        <input type="text" id="mtx-gate-lang-search" class="mtx-auth-input" placeholder="Cari bahasa dunia (Indonesia, English, 日本語, Jawa, Sunda, العربية)...">
+        <div class="mtx-gate-lang-box" id="mtx-gate-lang-list"></div>
+        <button type="button" id="mtx-gate-next-login" class="mtx-btn-email"></button>
+      </div>
+
+      <!-- TAHAP 2: LOGIN / DAFTAR AKUN -->
+      <div id="mtx-gate-step-login" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--mtx-surface);border:1px solid var(--mtx-accent-border);border-radius:10px;padding:6px 10px;margin-bottom:10px;font-size:12px;">
+          <span>Bahasa: <strong id="mtx-gate-chosen-lang"></strong></span>
+          <button type="button" id="mtx-gate-back-lang" class="mtx-act-btn" style="padding:3px 9px;font-size:11px;"></button>
+        </div>
+        <div style="font-size:14.5px;font-weight:800;margin-bottom:3px;" id="mtx-s2-title"></div>
+        <p style="margin:0 0 12px;font-size:12px;opacity:0.85;" id="mtx-s2-sub"></p>
+
         <button type="button" id="mtx-login-google" class="mtx-btn-google">Masuk Cepat dengan Google</button>
         <div style="font-size:11.5px; opacity:0.75; margin:8px 0;">atau pakai email apapun</div>
         <input type="text" id="mtx-reg-nama" class="mtx-auth-input" placeholder="Nama Channel kamu (khusus daftar baru)" style="display:none;">
@@ -1108,14 +1249,23 @@
         </p>
       </div>
 
-      <div id="mtx-box-verifikasi" style="display:none;">
+      <!-- TAHAP 2B: VERIFIKASI EMAIL -->
+      <div id="mtx-gate-step-verif" style="display:none;">
         <p style="font-size:13px; line-height:1.5; margin:0 0 12px;">
           Link verifikasi sudah dikirim ke <strong id="mtx-verif-email"></strong>.<br>
           Buka inbox (atau folder Spam) email kamu lalu klik link-nya.
         </p>
-        <button type="button" id="mtx-cek-verif" class="mtx-btn-email" style="margin-bottom:8px;">Saya Sudah Klik Link (Masuk)</button>
+        <button type="button" id="mtx-cek-verif" class="mtx-btn-email" style="margin-bottom:8px;">Saya Sudah Klik Link (Lanjut Pilih Tema)</button>
         <button type="button" id="mtx-kirim-ulang" class="mtx-btn-google" style="margin-bottom:8px; font-size:12.5px;">Kirim Ulang Link Verifikasi</button>
-        <a href="#" id="mtx-logout-verif" style="font-size:12px; color:#c9184a; font-weight:600;">Ganti Akun / Keluar</a>
+        <a href="#" id="mtx-logout-verif" style="font-size:12px; color:#c9184a; font-weight:600;">Ganti Akun / Kembali</a>
+      </div>
+
+      <!-- TAHAP 3: PILIH TEMA SETELAH LOGIN -->
+      <div id="mtx-gate-step-theme" style="display:none;">
+        <div style="font-size:14.5px;font-weight:800;margin-bottom:3px;" id="mtx-s3-title"></div>
+        <p style="margin:0 0 10px;font-size:12px;opacity:0.85;" id="mtx-s3-sub"></p>
+        <div class="mtx-gate-theme-grid" id="mtx-gate-theme-list"></div>
+        <button type="button" id="mtx-gate-finish-theme" class="mtx-btn-email"></button>
       </div>
 
       <div id="mtx-auth-err" style="margin-top:10px; font-size:12px; color:#c9184a; font-weight:600;"></div>
@@ -1125,6 +1275,122 @@
 
   let modeDaftar = false;
   const errBox = document.getElementById("mtx-auth-err");
+
+  function renderGateLanguageList() {
+    const listBox = document.getElementById("mtx-gate-lang-list");
+    if (!listBox) return;
+    const q = gateLangQuery.trim().toLowerCase();
+    const tersaring = SEMUA_BAHASA_DUNIA.filter(([kode, nama]) => {
+      if (!q) return true;
+      return kode.toLowerCase().includes(q) || nama.toLowerCase().includes(q);
+    });
+
+    listBox.innerHTML = tersaring.map(([kode, nama]) => `
+      <button type="button" data-gate-lang="${kode}" class="mtx-lang-item ${bahasaAktif === kode ? "active" : ""}">
+        ${esc(nama)} ${bahasaAktif === kode ? "✓" : ""}
+      </button>
+    `).join("");
+
+    listBox.querySelectorAll("[data-gate-lang]").forEach((btn) => {
+      btn.onclick = () => {
+        const kode = btn.getAttribute("data-gate-lang");
+        terapkanBahasa(kode, true);
+        renderGateLanguageList();
+      };
+    });
+  }
+
+  function renderGateThemeList() {
+    const themeBox = document.getElementById("mtx-gate-theme-list");
+    if (!themeBox) return;
+    themeBox.innerHTML = DAFTAR_TEMA.map((t) => `
+      <div data-gate-theme="${t.id}" class="mtx-theme-card ${temaAktif === t.id ? "active" : ""}">
+        <div class="mtx-theme-swatch" style="background:${t.preview};"></div>
+        <div style="font-size:12.5px;font-weight:800;">${esc(t.nama)} ${temaAktif === t.id ? "✓" : ""}</div>
+        <div style="font-size:11px;opacity:0.8;margin-top:2px;">${esc(t.desc)}</div>
+      </div>
+    `).join("");
+
+    themeBox.querySelectorAll("[data-gate-theme]").forEach((card) => {
+      card.onclick = () => {
+        const tId = card.getAttribute("data-gate-theme");
+        terapkanTema(tId);
+        renderGateThemeList();
+      };
+    });
+  }
+
+  function renderGateStep() {
+    const stepsWrap = document.getElementById("mtx-wizard-steps");
+    if (stepsWrap) {
+      const s1Class = gateStep === "lang" ? "active" : "done";
+      const s2Class = (gateStep === "login" || gateStep === "verif") ? "active" : (gateStep === "theme" ? "done" : "");
+      const s3Class = gateStep === "theme" ? "active" : "";
+      stepsWrap.innerHTML = `
+        <span class="mtx-wizard-pill ${s1Class}">${esc(tr("step1Badge"))}</span>
+        <span class="mtx-wizard-pill ${s2Class}">${esc(tr("step2Badge"))}</span>
+        <span class="mtx-wizard-pill ${s3Class}">${esc(tr("step3Badge"))}</span>
+      `;
+    }
+
+    if (gateStep === "theme") {
+      gate.classList.add("theme-preview-mode");
+    } else {
+      gate.classList.remove("theme-preview-mode");
+    }
+
+    document.getElementById("mtx-gate-step-lang").style.display  = gateStep === "lang" ? "block" : "none";
+    document.getElementById("mtx-gate-step-login").style.display = gateStep === "login" ? "block" : "none";
+    document.getElementById("mtx-gate-step-verif").style.display = gateStep === "verif" ? "block" : "none";
+    document.getElementById("mtx-gate-step-theme").style.display = gateStep === "theme" ? "block" : "none";
+
+    document.getElementById("mtx-s1-title").textContent = tr("step1Title");
+    document.getElementById("mtx-s1-sub").textContent = tr("step1Sub");
+    document.getElementById("mtx-gate-next-login").textContent = tr("nextToLogin");
+
+    const langObj = SEMUA_BAHASA_DUNIA.find(([k]) => k === bahasaAktif) || ["id", "Bahasa Indonesia"];
+    document.getElementById("mtx-gate-chosen-lang").textContent = langObj[1];
+    document.getElementById("mtx-gate-back-lang").textContent = tr("changeLang");
+    document.getElementById("mtx-s2-title").textContent = tr("step2Title");
+    document.getElementById("mtx-s2-sub").textContent = tr("step2Sub");
+
+    document.getElementById("mtx-s3-title").textContent = tr("step3Title");
+    document.getElementById("mtx-s3-sub").textContent = tr("step3Sub");
+    document.getElementById("mtx-gate-finish-theme").textContent = tr("enterHome");
+
+    if (gateStep === "lang") renderGateLanguageList();
+    if (gateStep === "theme") renderGateThemeList();
+  }
+
+  document.getElementById("mtx-gate-lang-search").oninput = (e) => {
+    gateLangQuery = e.target.value;
+    renderGateLanguageList();
+  };
+
+  document.getElementById("mtx-gate-next-login").onclick = () => {
+    errBox.textContent = "";
+    gateStep = "login";
+    renderGateStep();
+  };
+
+  document.getElementById("mtx-gate-back-lang").onclick = () => {
+    errBox.textContent = "";
+    gateStep = "lang";
+    renderGateStep();
+  };
+
+  document.getElementById("mtx-gate-finish-theme").onclick = () => {
+    if (userAktif) {
+      localStorage.setItem(`mtx_theme_onboarded_${userAktif.email.toLowerCase()}`, "1");
+    }
+    gate.style.display = "none";
+    gate.classList.remove("theme-preview-mode");
+    if (typeof renderSemuaTab === "function") renderSemuaTab();
+    const tObj = DAFTAR_TEMA.find((x) => x.id === temaAktif);
+    tampilkanToast(`Selamat datang di MiniTube X! Tema aktif: ${tObj ? tObj.nama : temaAktif}`);
+  };
+
+  renderGateStep();
 
   document.getElementById("mtx-toggle-mode").onclick = (e) => {
     e.preventDefault();
@@ -1196,6 +1462,7 @@
 
   document.getElementById("mtx-logout-verif").onclick = (e) => {
     e.preventDefault();
+    gateStep = "lang";
     auth.signOut();
   };
 
@@ -1329,7 +1596,7 @@
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && userAktif) {
+    if (e.key === "/" && userAktif && gate.style.display === "none") {
       const aktif = document.activeElement;
       if (!aktif || !["INPUT", "TEXTAREA", "SELECT"].includes(aktif.tagName)) {
         e.preventDefault();
@@ -1338,6 +1605,14 @@
       }
     }
   });
+
+  function keluarDariAkun() {
+    if (userAktif && userAktif.email) {
+      localStorage.removeItem(`mtx_theme_onboarded_${userAktif.email.toLowerCase()}`);
+    }
+    gateStep = "lang";
+    auth.signOut();
+  }
 
   // 4. Header Pill Profil, Tombol Pengaturan, & Keluar
   function pasangInfoHeader() {
@@ -1377,7 +1652,7 @@
     btnOut.className = "win7-btn";
     btnOut.textContent = tr("logout");
     btnOut.onclick = () => {
-      if (confirm("Keluar dari akun MiniTube X?")) auth.signOut();
+      if (confirm("Keluar dari akun MiniTube X?")) keluarDariAkun();
     };
     wrap.appendChild(btnOut);
 
@@ -1414,27 +1689,42 @@
     if (!user) {
       userAktif = null;
       gate.style.display = "flex";
-      document.getElementById("mtx-form-login").style.display = "block";
-      document.getElementById("mtx-box-verifikasi").style.display = "none";
+      if (gateStep !== "lang" && gateStep !== "login") {
+        gateStep = "lang";
+      }
+      renderGateStep();
       return;
     }
 
     if (!user.emailVerified) {
       userAktif = null;
       gate.style.display = "flex";
-      document.getElementById("mtx-form-login").style.display = "none";
-      document.getElementById("mtx-box-verifikasi").style.display = "block";
+      gateStep = "verif";
       document.getElementById("mtx-verif-email").textContent = user.email;
+      renderGateStep();
       return;
     }
 
     userAktif = user;
-    gate.style.display = "none";
+    const themeOnboardKey = `mtx_theme_onboarded_${user.email.toLowerCase()}`;
+    const sudahPilihTema = localStorage.getItem(themeOnboardKey) === "1";
+
     pasangTabSosial();
     kunciInputNama();
     pasangInfoHeader();
     await muatDataChannel();
-    if (typeof renderSemuaTab === "function") renderSemuaTab();
+
+    if (!sudahPilihTema) {
+      // Tahap 3: Habis login wajib pilih tema dulu sebelum masuk halaman utama
+      gate.style.display = "flex";
+      gateStep = "theme";
+      renderGateStep();
+      if (typeof renderSemuaTab === "function") renderSemuaTab();
+    } else {
+      gate.style.display = "none";
+      gate.classList.remove("theme-preview-mode");
+      if (typeof renderSemuaTab === "function") renderSemuaTab();
+    }
   }
 
   auth.onAuthStateChanged(terapkanStatusUser);
@@ -2724,7 +3014,7 @@
     };
 
     document.getElementById("mtx-set-logout").onclick = () => {
-      if (confirm("Keluar dari akun MiniTube X sekarang?")) auth.signOut();
+      if (confirm("Keluar dari akun MiniTube X sekarang?")) keluarDariAkun();
     };
 
     document.getElementById("mtx-set-delete-account").onclick = async () => {
@@ -2736,12 +3026,14 @@
         const okServer = await kirimAksiApi("/api/account/delete", { hapusPostingan: hapusJugaPost });
         if (!okServer) return;
         localStorage.removeItem(`mtx_algo_${myEmail}`);
+        localStorage.removeItem(`mtx_theme_onboarded_${myEmail}`);
+        gateStep = "lang";
         await userAktif.delete();
         alert("Akun kamu telah berhasil dihapus secara permanen.");
       } catch (err) {
         if (err.code === "auth/requires-recent-login") {
           alert("Data profil di server sudah dibersihkan. Demi keamanan Firebase, silakan login ulang sekali lagi jika ingin menghapus kredensial login secara permanen.");
-          auth.signOut();
+          keluarDariAkun();
         } else {
           alert("Gagal menghapus akun: " + err.message);
         }
